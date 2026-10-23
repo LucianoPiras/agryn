@@ -22,6 +22,11 @@ const SELF = 'rgba(250,246,233,0.14)', SELB = 'rgba(250,246,233,0.42)';
 const QUARTER = 15 * 60 * 1000;
 const STORE = 'agryn-planta-v1';
 const DEMO_PASSWORD = '12345';
+// Usuarios del prototipo. En la versión real viven en un servidor.
+const USUARIOS = [{ email: 'demo@agryn.test', password: DEMO_PASSWORD }];
+const SESION = 'agryn-sesion-v1';
+const CODE_TTL = 5 * 60 * 1000;
+const MAX_INTENTOS = 3;
 function contentOf(b) { const c = b.content || 'Sin definir'; return c === 'Otro' ? ((b.custom || '').trim() || 'Otro') : c; }
 
 function rnd(s) { const x = Math.sin(s * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
@@ -49,12 +54,21 @@ function loadBags() {
   return initialBags();
 }
 function maxId(list) { return list.reduce((m, x) => Math.max(m, x.id), -1); }
+function emailValido(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+function nuevoCodigo() { return String(Math.floor(100000 + Math.random() * 900000)); }
+function mmss(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function sesionGuardada() {
+  try {
+    const e = window.localStorage.getItem(SESION);
+    return USUARIOS.some((u) => u.email === e) ? e : null;
+  } catch (err) { return null; }
+}
 
 export default class App extends React.Component {
   constructor(props) {
     super(props);
     const bags = loadBags();
-    this.state = { bags: bags, view: 'overview', range: '24h', bag: bags[0].id, node: null, cursor: null, ack: {}, sim: null, simAt: 0, tick: 0, form: { open: false, name: '', nodes: 4, content: 'Sin definir' }, del: { step: null, pw: '', err: false }, confirm: null, confirmAt: 0 };
+    this.state = { bags: bags, view: 'overview', range: '24h', bag: bags[0].id, node: null, cursor: null, ack: {}, sim: null, simAt: 0, tick: 0, form: { open: false, name: '', nodes: 4, content: 'Sin definir' }, del: { step: null, pw: '', err: false }, confirm: null, confirmAt: 0, auth: { user: sesionGuardada(), paso: 'login', email: '', pw: '', codigo: '', code: '', vence: 0, intentos: 0, err: '', aviso: '' } };
     if (bags.some((b) => b.id === 2)) this.state.bag = 2;
   }
   componentDidMount() {
@@ -371,8 +385,49 @@ export default class App extends React.Component {
     }));
     const nextIn = 15 - Math.floor((Date.now() % QUARTER) / 60000);
 
+    // ---- inicio de sesión: correo y contraseña, y después un código al correo ----
+    const A = S.auth;
+    const setAuth = (patch) => self.setState((s) => ({ auth: Object.assign({}, s.auth, patch) }));
+    const onAuthField = (campo) => (e) => { const val = e.target.value; setAuth({ [campo]: val, err: '', aviso: '' }); };
+    const onLoginCodigo = (e) => { const val = e.target.value.replace(/\D/g, '').slice(0, 6); setAuth({ code: val, err: '', aviso: '' }); };
+    const pedirCodigo = () => {
+      const email = A.email.trim().toLowerCase();
+      if (!emailValido(email)) { setAuth({ err: 'Ingresá un correo válido, por ejemplo nombre@dominio.com.', aviso: '' }); return; }
+      if (!A.pw) { setAuth({ err: 'Ingresá tu contraseña.', aviso: '' }); return; }
+      const ok = USUARIOS.some((u) => u.email === email && u.password === A.pw);
+      if (!ok) { setAuth({ err: 'Correo o contraseña incorrectos.', pw: '', aviso: '' }); return; }
+      setAuth({ paso: 'codigo', email: email, pw: '', codigo: nuevoCodigo(), code: '', vence: Date.now() + CODE_TTL, intentos: 0, err: '', aviso: '' });
+    };
+    const reenviarCodigo = () => setAuth({ codigo: nuevoCodigo(), code: '', vence: Date.now() + CODE_TTL, intentos: 0, err: '', aviso: 'Enviamos un código nuevo a ' + A.email + '.' });
+    const confirmarCodigo = () => {
+      if (Date.now() > A.vence) { setAuth({ err: 'El código venció. Pedí uno nuevo.', code: '', aviso: '' }); return; }
+      if (A.code !== A.codigo) {
+        const intentos = A.intentos + 1;
+        if (intentos >= MAX_INTENTOS) { setAuth({ paso: 'login', email: '', codigo: '', code: '', intentos: 0, vence: 0, err: 'Superaste los intentos permitidos. Volvé a ingresar tus datos.', aviso: '' }); return; }
+        const quedan = MAX_INTENTOS - intentos;
+        setAuth({ intentos: intentos, code: '', err: 'El código no coincide. Te ' + (quedan === 1 ? 'queda 1 intento.' : 'quedan ' + quedan + ' intentos.'), aviso: '' });
+        return;
+      }
+      try { window.localStorage.setItem(SESION, A.email); } catch (e) { /* sin almacenamiento: la sesión dura lo que la pestaña */ }
+      setAuth({ user: A.email, paso: 'login', email: '', pw: '', codigo: '', code: '', intentos: 0, vence: 0, err: '', aviso: '' });
+    };
+    const volverLogin = () => setAuth({ paso: 'login', code: '', err: '', aviso: '' });
+    const cerrarSesion = () => {
+      try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ }
+      setAuth({ user: null, paso: 'login', pw: '', code: '', codigo: '', err: '', aviso: '' });
+    };
+    const restan = Math.max(0, A.vence - Date.now());
+
     return {
       bagName: bo.name, scopeLabel, nextIn,
+      logueado: !!A.user, usuario: A.user || '',
+      loginIsCodigo: A.paso === 'codigo', loginEmail: A.email, loginPw: A.pw, loginCodigo: A.code,
+      loginDestino: A.email, loginHint: A.codigo, loginErr: A.err, loginAviso: A.aviso,
+      loginVence: mmss(restan), loginVencido: A.paso === 'codigo' && restan === 0,
+      onLoginEmail: onAuthField('email'), onLoginPw: onAuthField('pw'), onLoginCodigo,
+      onLoginKey: (e) => { if (e.key === 'Enter') pedirCodigo(); },
+      onCodigoKey: (e) => { if (e.key === 'Enter') confirmarCodigo(); },
+      pedirCodigo, reenviarCodigo, confirmarCodigo, volverLogin, cerrarSesion,
       headline: isOverview ? 'Tu cosecha, bajo control' : VARS[dIdx].name,
       isOverview, isDetail: !isOverview,
       overviewPressed: isOverview, overviewBg: isOverview ? SELF : 'transparent', overviewBorder: isOverview ? SELB : 'transparent',
@@ -404,8 +459,73 @@ export default class App extends React.Component {
     };
   }
 
+  renderLogin(v) {
+    const alerta = { padding: "10px 12px", borderRadius: "8px", fontSize: "13px", fontWeight: "600" };
+    return (
+      <div style={{ minHeight: "100vh", boxSizing: "border-box", padding: "24px 16px", background: "#F3F0E4", color: "#0F2A1F", fontFamily: "'Montserrat', system-ui, sans-serif", fontSize: "14px", lineHeight: "1.45", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <main style={{ width: "100%", maxWidth: "380px", boxSizing: "border-box", padding: "28px 24px", borderRadius: "18px", background: "#FAF6E9", boxShadow: "0 1px 3px rgba(15,42,31,0.08)", display: "flex", flexDirection: "column", gap: "18px" }}>
+      <img src="/logos/agryn-logo.png" alt="AGRYN, inteligencia en cada bolsa" style={{ display: "block", width: "min(200px, 70%)", height: "auto", margin: "0 auto" }} />
+      <div style={{ textAlign: "center" }}>
+      <h1 style={{ margin: "0", font: "700 22px/1.2 'Inter', system-ui, sans-serif", color: "#005A36" }}>
+      {v.loginIsCodigo ? "Confirmá tu identidad" : "Ingresá a AGRYN Monitoreo"}
+      </h1>
+      <p style={{ margin: "6px 0 0", color: "#4F6459" }}>
+      {v.loginIsCodigo ? "Te mandamos un código de 6 dígitos a " + v.loginDestino + "." : "Tu cosecha, bajo control."}
+      </p>
+      </div>
+      {!v.loginIsCodigo && (<>
+      <label htmlFor="login-email" style={{ fontSize: "13px", fontWeight: "600" }}>
+      Correo electrónico
+      </label>
+      <input id="login-email" type="email" className="field" autoComplete="username" value={v.loginEmail} onChange={v.onLoginEmail} onKeyDown={v.onLoginKey} />
+      <label htmlFor="login-pw" style={{ fontSize: "13px", fontWeight: "600" }}>
+      Contraseña
+      </label>
+      <input id="login-pw" type="password" className="field" autoComplete="current-password" value={v.loginPw} onChange={v.onLoginPw} onKeyDown={v.onLoginKey} />
+      </>)}
+      {v.loginIsCodigo && (<>
+      <div role="note" style={{ padding: "10px 12px", borderRadius: "8px", border: "1px dashed #B9CCC2", fontSize: "13px", color: "#4F6459" }}>
+      Modo prototipo: todavía no hay envío de correo real. El código de prueba es <strong style={{ color: "#0F2A1F" }}>{v.loginHint}</strong>.
+      </div>
+      <label htmlFor="login-codigo" style={{ fontSize: "13px", fontWeight: "600" }}>
+      Código de confirmación
+      </label>
+      <input id="login-codigo" type="text" inputMode="numeric" autoComplete="one-time-code" className="field" value={v.loginCodigo} onChange={v.onLoginCodigo} onKeyDown={v.onCodigoKey} style={{ letterSpacing: "0.3em", fontSize: "18px", fontWeight: "700" }} />
+      <p style={{ margin: "0", fontSize: "13px", color: v.loginVencido ? "#8F2113" : "#4F6459", fontWeight: v.loginVencido ? "600" : "500" }}>
+      {v.loginVencido ? "El código venció. Pedí uno nuevo." : "Vence en " + v.loginVence + "."}
+      </p>
+      </>)}
+      {v.loginErr && (<div role="alert" style={{ ...alerta, background: "#FDECE8", border: "1px solid #C8321F", color: "#8F2113" }}>
+      {v.loginErr}
+      </div>)}
+      {v.loginAviso && (<div role="status" style={{ ...alerta, background: "#E4EDE8", border: "1px solid #B9CCC2", color: "#005A36" }}>
+      {v.loginAviso}
+      </div>)}
+      {v.loginIsCodigo ? (<>
+      <button type="button" className="btn primary" onClick={v.confirmarCodigo} style={{ width: "100%" }}>
+      Confirmar y entrar
+      </button>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+      <button type="button" className="btn" onClick={v.reenviarCodigo} style={{ flex: "1 1 140px" }}>
+      Reenviar código
+      </button>
+      <button type="button" className="btn" onClick={v.volverLogin} style={{ flex: "1 1 140px" }}>
+      Volver
+      </button>
+      </div>
+      </>) : (
+      <button type="button" className="btn primary" onClick={v.pedirCodigo} style={{ width: "100%" }}>
+      Continuar
+      </button>
+      )}
+      </main>
+      </div>
+    );
+  }
+
   render() {
     const v = this.renderVals();
+    if (!v.logueado) return this.renderLogin(v);
     return (
       <div style={{ display: "flex", flexWrap: "wrap", minHeight: "100vh", background: "#F3F0E4", color: "#0F2A1F", fontFamily: "'Montserrat', system-ui, sans-serif", fontSize: "14px", lineHeight: "1.45" }}>
       <div className="hook" aria-hidden="true">
@@ -518,6 +638,14 @@ export default class App extends React.Component {
       </button>
       </React.Fragment>))}
       </nav>
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "auto" }}>
+      <p style={{ margin: "0 12px", fontSize: "12px", color: "rgba(250,246,233,0.82)", overflowWrap: "anywhere" }}>
+      Sesión iniciada como {v.usuario}
+      </p>
+      <button className="row-btn" onClick={v.cerrarSesion} style={{ justifyContent: "center", fontWeight: "600", border: "1px solid rgba(250,246,233,0.42)" }}>
+      Cerrar sesión
+      </button>
+      </div>
       </aside>
       <main style={{ flex: "999 1 560px", minWidth: "0", boxSizing: "border-box", padding: "clamp(16px, 3vw, 32px)", display: "flex", flexDirection: "column", gap: "24px" }}>
       <header style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "flex-end", justifyContent: "space-between" }}>

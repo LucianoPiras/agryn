@@ -17,6 +17,7 @@ npm run preview    # probar la versión compilada
 
 ## Qué hace
 
+- **Inicio de sesión** con correo y contraseña, y después un código de 6 dígitos de confirmación (vence en 5 min, 3 intentos). Hoy el código se muestra en pantalla como prototipo.
 - **Resumen** de la silobolsa elegida: una tarjeta por variable con valor actual, estado, historial (24 h, 7 días o 30 días) y mínimo, promedio y máximo.
 - **Detalle por variable**: gráfico grande con el rango habitual, recorrido del historial, estadísticas del período y comparación entre nodos y entre silobolsas.
 - **Nodos**: se ve el promedio de la silobolsa o un nodo en particular. Se pueden agregar y quitar nodos.
@@ -43,7 +44,8 @@ brand-originals/   Archivos originales de los logos
 2. **Modelo de datos**: `state.bags` es una lista de silobolsas con `id`, `name`, `content`, `custom` (si el contenido es "Otro") y `nodes` (`id`, `name`). Hoy se guarda en `localStorage` bajo la clave `agryn-planta-v1`; con datos reales debería vivir en un backend.
 3. **Umbrales**: están en la constante `VARS` (mínimo y máximo habitual de cada variable). **Son valores de ejemplo**: hay que definirlos con el equipo técnico según el grano almacenado. Las unidades también deben coincidir con las de los sensores reales.
 4. **Alertas**: se calculan en `renderVals()` recorriendo todos los nodos. Con datos reales conviene calcularlas en el servidor y enviar notificaciones (push, mail o WhatsApp).
-5. **Contraseña de eliminación**: la constante `DEMO_PASSWORD` (`12345`) está en el código del navegador, así que **no protege nada de verdad**. En la versión real hay que validar usuario y contraseña en un servidor.
+5. **Inicio de sesión**: la lista `USUARIOS` y el código de confirmación (`nuevoCodigo()`) viven en el navegador. En la versión real: validar en el servidor y enviar el código por correo con un servicio de mail.
+6. **Contraseña de eliminación**: la constante `DEMO_PASSWORD` (`12345`) está en el código del navegador, así que **no protege nada de verdad**. En la versión real hay que validar usuario y contraseña en un servidor.
 
 ## Identidad de marca
 

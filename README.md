@@ -15,6 +15,25 @@ npm run build      # versión para publicar, en /dist
 npm run preview    # probar la versión compilada
 ```
 
+## Correo y servidor
+
+El ingreso manda el código de confirmación por correo desde **Agryn.silobolsa@gmail.com** usando Gmail SMTP. Por eso hace falta un servidor (`server/index.js`) que corra junto a la app.
+
+Variables de entorno (en un archivo `.env` que no se sube al repo, o en el panel del servicio donde se publique):
+
+```bash
+GMAIL_USER=Agryn.silobolsa@gmail.com
+GMAIL_APP_PASSWORD=...        # contraseña de aplicación de esa cuenta (requiere verificación en dos pasos)
+AGRYN_USUARIOS=[{"email":"...","password":"..."}]
+```
+
+```bash
+npm run server     # API y pantalla en http://localhost:3001 (después de `npm run build`)
+npm run dev        # en otra terminal: desarrollo con Vite; /api va al servidor del puerto 3001
+```
+
+Para probar sin enviar correos: `AGRYN_MAIL=json npm run server` no manda nada y muestra el código en la consola del servidor.
+
 ## Qué hace
 
 - **Inicio de sesión** con correo y contraseña, y después un código de 6 dígitos de confirmación (vence en 5 min, 3 intentos). Hoy el código se muestra en pantalla como prototipo.

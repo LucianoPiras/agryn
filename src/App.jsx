@@ -22,11 +22,8 @@ const SELF = 'rgba(250,246,233,0.14)', SELB = 'rgba(250,246,233,0.42)';
 const QUARTER = 15 * 60 * 1000;
 const STORE = 'agryn-planta-v1';
 const DEMO_PASSWORD = '12345';
-// Usuarios del prototipo. En la versión real viven en un servidor.
-const USUARIOS = [{ email: 'demo@agryn.test', password: DEMO_PASSWORD }];
 const SESION = 'agryn-sesion-v1';
 const CODE_TTL = 5 * 60 * 1000;
-const MAX_INTENTOS = 3;
 function contentOf(b) { const c = b.content || 'Sin definir'; return c === 'Otro' ? ((b.custom || '').trim() || 'Otro') : c; }
 
 function rnd(s) { const x = Math.sin(s * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
@@ -55,24 +52,39 @@ function loadBags() {
 }
 function maxId(list) { return list.reduce((m, x) => Math.max(m, x.id), -1); }
 function emailValido(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
-function nuevoCodigo() { return String(Math.floor(100000 + Math.random() * 900000)); }
 function mmss(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
-function sesionGuardada() {
+// Llama a la API de AGRYN (server/index.js). Nunca lanza: devuelve ok, status y un mensaje legible.
+async function llamar(ruta, { metodo = 'POST', cuerpo, token } = {}) {
+  const cab = { 'Content-Type': 'application/json' };
+  if (token) cab.Authorization = 'Bearer ' + token;
   try {
-    const e = window.localStorage.getItem(SESION);
-    return USUARIOS.some((u) => u.email === e) ? e : null;
-  } catch (err) { return null; }
+    const r = await fetch(ruta, { method: metodo, headers: cab, body: cuerpo ? JSON.stringify(cuerpo) : undefined });
+    const d = await r.json().catch(() => ({}));
+    return { ok: r.ok, status: r.status, data: d, error: d.error || 'Algo salió mal. Probá de nuevo.' };
+  } catch (e) {
+    return { ok: false, status: 0, data: {}, error: 'No hay conexión con el servidor. Probá de nuevo.' };
+  }
+}
+function sesionLocal() {
+  try { return window.localStorage.getItem(SESION); } catch (e) { return null; }
 }
 
 export default class App extends React.Component {
   constructor(props) {
     super(props);
     const bags = loadBags();
-    this.state = { bags: bags, view: 'overview', range: '24h', bag: bags[0].id, node: null, cursor: null, ack: {}, sim: null, simAt: 0, tick: 0, form: { open: false, name: '', nodes: 4, content: 'Sin definir' }, del: { step: null, pw: '', err: false }, confirm: null, confirmAt: 0, auth: { user: sesionGuardada(), paso: 'login', email: '', pw: '', codigo: '', code: '', vence: 0, intentos: 0, err: '', aviso: '' } };
+    this.state = { bags: bags, view: 'overview', range: '24h', bag: bags[0].id, node: null, cursor: null, ack: {}, sim: null, simAt: 0, tick: 0, form: { open: false, name: '', nodes: 4, content: 'Sin definir' }, del: { step: null, pw: '', err: false }, confirm: null, confirmAt: 0, auth: { user: null, token: null, enviando: false, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' } };
     if (bags.some((b) => b.id === 2)) this.state.bag = 2;
   }
   componentDidMount() {
     this._t = setInterval(() => this.setState((s) => ({ tick: s.tick + 1 })), 1000);
+    const token = sesionLocal();
+    if (token) {
+      llamar('/api/sesion', { metodo: 'GET', token: token }).then((r) => {
+        if (r.ok) this.setState((s) => ({ auth: Object.assign({}, s.auth, { user: r.data.email, token: token }) }));
+        else { try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ } }
+      });
+    }
   }
   componentWillUnmount() { clearInterval(this._t); }
   componentDidUpdate(prevProps, prevState) {
@@ -385,36 +397,41 @@ export default class App extends React.Component {
     }));
     const nextIn = 15 - Math.floor((Date.now() % QUARTER) / 60000);
 
-    // ---- inicio de sesión: correo y contraseña, y después un código al correo ----
+    // ---- inicio de sesión: el servidor valida y envía el código por correo ----
     const A = S.auth;
     const setAuth = (patch) => self.setState((s) => ({ auth: Object.assign({}, s.auth, patch) }));
     const onAuthField = (campo) => (e) => { const val = e.target.value; setAuth({ [campo]: val, err: '', aviso: '' }); };
     const onLoginCodigo = (e) => { const val = e.target.value.replace(/\D/g, '').slice(0, 6); setAuth({ code: val, err: '', aviso: '' }); };
-    const pedirCodigo = () => {
+    const pedirCodigo = async () => {
+      if (A.enviando) return;
       const email = A.email.trim().toLowerCase();
       if (!emailValido(email)) { setAuth({ err: 'Ingresá un correo válido, por ejemplo nombre@dominio.com.', aviso: '' }); return; }
       if (!A.pw) { setAuth({ err: 'Ingresá tu contraseña.', aviso: '' }); return; }
-      const ok = USUARIOS.some((u) => u.email === email && u.password === A.pw);
-      if (!ok) { setAuth({ err: 'Correo o contraseña incorrectos.', pw: '', aviso: '' }); return; }
-      setAuth({ paso: 'codigo', email: email, pw: '', codigo: nuevoCodigo(), code: '', vence: Date.now() + CODE_TTL, intentos: 0, err: '', aviso: '' });
+      setAuth({ enviando: true, err: '', aviso: '' });
+      const r = await llamar('/api/login', { cuerpo: { email: email, password: A.pw } });
+      if (!r.ok) { setAuth({ enviando: false, err: r.error, pw: r.status === 401 ? '' : A.pw }); return; }
+      setAuth({ enviando: false, paso: 'codigo', email: email, pw: '', code: '', vence: Date.now() + CODE_TTL, err: '', aviso: 'Te mandamos el código a ' + email + '. Si no lo ves, revisá la carpeta de spam.' });
     };
-    const reenviarCodigo = () => setAuth({ codigo: nuevoCodigo(), code: '', vence: Date.now() + CODE_TTL, intentos: 0, err: '', aviso: 'Enviamos un código nuevo a ' + A.email + '.' });
-    const confirmarCodigo = () => {
-      if (Date.now() > A.vence) { setAuth({ err: 'El código venció. Pedí uno nuevo.', code: '', aviso: '' }); return; }
-      if (A.code !== A.codigo) {
-        const intentos = A.intentos + 1;
-        if (intentos >= MAX_INTENTOS) { setAuth({ paso: 'login', email: '', codigo: '', code: '', intentos: 0, vence: 0, err: 'Superaste los intentos permitidos. Volvé a ingresar tus datos.', aviso: '' }); return; }
-        const quedan = MAX_INTENTOS - intentos;
-        setAuth({ intentos: intentos, code: '', err: 'El código no coincide. Te ' + (quedan === 1 ? 'queda 1 intento.' : 'quedan ' + quedan + ' intentos.'), aviso: '' });
-        return;
-      }
-      try { window.localStorage.setItem(SESION, A.email); } catch (e) { /* sin almacenamiento: la sesión dura lo que la pestaña */ }
-      setAuth({ user: A.email, paso: 'login', email: '', pw: '', codigo: '', code: '', intentos: 0, vence: 0, err: '', aviso: '' });
+    const reenviarCodigo = async () => {
+      if (A.enviando) return;
+      setAuth({ enviando: true, err: '', aviso: '' });
+      const r = await llamar('/api/codigo/reenviar', { cuerpo: { email: A.email } });
+      if (!r.ok) { setAuth({ enviando: false, err: r.error, ...(r.data.volverLogin ? { paso: 'login', email: '', code: '' } : {}) }); return; }
+      setAuth({ enviando: false, code: '', vence: Date.now() + CODE_TTL, err: '', aviso: 'Enviamos un código nuevo a ' + A.email + '.' });
+    };
+    const confirmarCodigo = async () => {
+      if (A.enviando) return;
+      setAuth({ enviando: true, err: '', aviso: '' });
+      const r = await llamar('/api/verify', { cuerpo: { email: A.email, code: A.code } });
+      if (!r.ok) { setAuth({ enviando: false, code: '', err: r.error, ...(r.data.volverLogin ? { paso: 'login', email: '', vence: 0 } : {}) }); return; }
+      try { window.localStorage.setItem(SESION, r.data.token); } catch (e) { /* sin almacenamiento: la sesión dura lo que la pestaña */ }
+      setAuth({ enviando: false, user: r.data.email, token: r.data.token, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' });
     };
     const volverLogin = () => setAuth({ paso: 'login', code: '', err: '', aviso: '' });
-    const cerrarSesion = () => {
+    const cerrarSesion = async () => {
+      await llamar('/api/logout', { token: A.token });
       try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ }
-      setAuth({ user: null, paso: 'login', pw: '', code: '', codigo: '', err: '', aviso: '' });
+      setAuth({ user: null, token: null, paso: 'login', email: '', pw: '', code: '', err: '', aviso: '' });
     };
     const restan = Math.max(0, A.vence - Date.now());
 
@@ -422,7 +439,7 @@ export default class App extends React.Component {
       bagName: bo.name, scopeLabel, nextIn,
       logueado: !!A.user, usuario: A.user || '',
       loginIsCodigo: A.paso === 'codigo', loginEmail: A.email, loginPw: A.pw, loginCodigo: A.code,
-      loginDestino: A.email, loginHint: A.codigo, loginErr: A.err, loginAviso: A.aviso,
+      loginDestino: A.email, loginErr: A.err, loginAviso: A.aviso, enviando: A.enviando,
       loginVence: mmss(restan), loginVencido: A.paso === 'codigo' && restan === 0,
       onLoginEmail: onAuthField('email'), onLoginPw: onAuthField('pw'), onLoginCodigo,
       onLoginKey: (e) => { if (e.key === 'Enter') pedirCodigo(); },
@@ -484,9 +501,6 @@ export default class App extends React.Component {
       <input id="login-pw" type="password" className="field" autoComplete="current-password" value={v.loginPw} onChange={v.onLoginPw} onKeyDown={v.onLoginKey} />
       </>)}
       {v.loginIsCodigo && (<>
-      <div role="note" style={{ padding: "10px 12px", borderRadius: "8px", border: "1px dashed #B9CCC2", fontSize: "13px", color: "#4F6459" }}>
-      Modo prototipo: todavía no hay envío de correo real. El código de prueba es <strong style={{ color: "#0F2A1F" }}>{v.loginHint}</strong>.
-      </div>
       <label htmlFor="login-codigo" style={{ fontSize: "13px", fontWeight: "600" }}>
       Código de confirmación
       </label>
@@ -502,11 +516,11 @@ export default class App extends React.Component {
       {v.loginAviso}
       </div>)}
       {v.loginIsCodigo ? (<>
-      <button type="button" className="btn primary" onClick={v.confirmarCodigo} style={{ width: "100%" }}>
-      Confirmar y entrar
+      <button type="button" className="btn primary" onClick={v.confirmarCodigo} disabled={v.enviando} style={{ width: "100%" }}>
+      {v.enviando ? "Verificando…" : "Confirmar y entrar"}
       </button>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-      <button type="button" className="btn" onClick={v.reenviarCodigo} style={{ flex: "1 1 140px" }}>
+      <button type="button" className="btn" onClick={v.reenviarCodigo} disabled={v.enviando} style={{ flex: "1 1 140px" }}>
       Reenviar código
       </button>
       <button type="button" className="btn" onClick={v.volverLogin} style={{ flex: "1 1 140px" }}>
@@ -514,8 +528,8 @@ export default class App extends React.Component {
       </button>
       </div>
       </>) : (
-      <button type="button" className="btn primary" onClick={v.pedirCodigo} style={{ width: "100%" }}>
-      Continuar
+      <button type="button" className="btn primary" onClick={v.pedirCodigo} disabled={v.enviando} style={{ width: "100%" }}>
+      {v.enviando ? "Enviando código…" : "Continuar"}
       </button>
       )}
       </main>

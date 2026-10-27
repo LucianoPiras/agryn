@@ -68,6 +68,8 @@ Notas:
 - **Tiempo real:** la pantalla abre una conexión de eventos (`GET /api/eventos`) con un ticket de un solo uso, que pide con su sesión. Por la conexión llegan `aviso`, `alerta` y `datos`.
 - **Corte de datos:** si un nodo que ya reportó no manda nada en 3 minutos, aparece la alerta crítica «Sin datos de la central». Se revisa cada 30 segundos.
 
+Al llegar una alerta, la app mira los factores de las 2 horas previas (`server/diagnostico.js`) y agrega un diagnóstico orientativo: si la temperatura y el CO₂ subieron juntos, lo señala como posible fermentación; si el CO₂ bajó y la humedad subió, como posible rotura. Si no encaja con ningún patrón, lo dice sin inventar una causa. Las reglas hay que validarlas con el equipo técnico.
+
 Las anomalías se mandan con `POST /api/central/anomalias` y tienen este formato: `device_id`, `tipo` (`fermentacion`, `rotura` o una variable), `nivel` (`crit` por defecto, o `warn`) y, opcionalmente, `valor` y `ts`. Si el nodo ya tiene una alerta de ese tipo sin reconocer, no se repite.
 
 **Notificaciones de alertas críticas.** Llegan por tres caminos: el banner rojo de la app, el centro de avisos y el correo. Si el usuario activa las notificaciones del navegador, también aparecen como notificación del sistema mientras la app está abierta. La app no puede saltear las notificaciones que el usuario o el navegador tienen desactivadas. WhatsApp y Telegram todavía no están conectados: necesitan sus credenciales y el acceso a sus servicios desde el servidor.

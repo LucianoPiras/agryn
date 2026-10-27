@@ -17,11 +17,11 @@ export const DEMORA_ATENCION = 30 * 60 * 1000;
 
 export function textoDeAlerta(a) {
   const titulo = (a.nivel === 'crit' ? 'Alerta crítica' : 'Atención') + ' · ' + a.silobolsa + ' · ' + a.nodo;
-  if (PATRONES[a.variable]) return { titulo, detalle: etiquetaVariable(a.variable) + '. ' + PATRONES[a.variable].descripcion };
+  if (PATRONES[a.variable]) return { titulo, detalle: a.diagnostico || etiquetaVariable(a.variable) + '. ' + PATRONES[a.variable].descripcion };
   const v = VARIABLES.find((x) => x.key === a.variable);
   const unidad = v && v.unidad ? ' ' + v.unidad : '';
-  const detalle = etiquetaVariable(a.variable) + ' en ' + String(a.valor).replace('.', ',') + unidad + ', fuera del rango habitual.';
-  return { titulo, detalle };
+  const base = etiquetaVariable(a.variable) + ' en ' + String(a.valor).replace('.', ',') + unidad + ', fuera del rango habitual.';
+  return { titulo, detalle: a.diagnostico ? base + ' ' + a.diagnostico : base };
 }
 
 export function crearNotificador({ repo, canales = [], bus = null }) {

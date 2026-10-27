@@ -34,7 +34,8 @@ export function abrirBase(ruta = ':memory:') {
       ts INTEGER NOT NULL,
       reconocida INTEGER NOT NULL DEFAULT 0,
       creada INTEGER NOT NULL DEFAULT 0,
-      notificada INTEGER NOT NULL DEFAULT 0
+      notificada INTEGER NOT NULL DEFAULT 0,
+      diagnostico TEXT
     );
     CREATE INDEX IF NOT EXISTS alertas_por_nodo ON alertas(nodo_id, variable, reconocida);
     CREATE TABLE IF NOT EXISTS avisos (
@@ -72,6 +73,7 @@ export function abrirBase(ruta = ':memory:') {
     db.exec('ALTER TABLE alertas ADD COLUMN creada INTEGER NOT NULL DEFAULT 0');
     db.exec('ALTER TABLE alertas ADD COLUMN notificada INTEGER NOT NULL DEFAULT 1');
   }
+  if (!columnas.includes('diagnostico')) db.exec('ALTER TABLE alertas ADD COLUMN diagnostico TEXT');
   return db;
 }
 
@@ -94,14 +96,15 @@ export function crearRepo(db) {
     lecturas: q('SELECT ts, ph, temp, hum, co2 FROM lecturas WHERE nodo_id = ? AND ts BETWEEN ? AND ? ORDER BY ts DESC LIMIT ?'),
     ultima: q('SELECT ts, ph, temp, hum, co2 FROM lecturas WHERE nodo_id = ? ORDER BY ts DESC LIMIT 1'),
     entre: q('SELECT ts, ph, temp, hum, co2 FROM lecturas WHERE nodo_id = ? AND ts >= ? ORDER BY ts ASC'),
+    entreAcotado: q('SELECT ts, ph, temp, hum, co2 FROM lecturas WHERE nodo_id = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC'),
     alertaActiva: q('SELECT id FROM alertas WHERE nodo_id = ? AND variable = ? AND reconocida = 0'),
-    nuevaAlerta: q('INSERT INTO alertas (nodo_id, variable, valor, nivel, ts, creada) VALUES (?, ?, ?, ?, ?, ?)'),
-    alertasPorNotificar: q(`SELECT a.id, a.variable, a.valor, a.nivel, a.ts, n.id AS nodo_id, n.nombre AS nodo, s.id AS silobolsa_id, s.nombre AS silobolsa
+    nuevaAlerta: q('INSERT INTO alertas (nodo_id, variable, valor, nivel, ts, creada, diagnostico) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+    alertasPorNotificar: q(`SELECT a.id, a.variable, a.valor, a.nivel, a.ts, a.diagnostico, n.id AS nodo_id, n.nombre AS nodo, s.id AS silobolsa_id, s.nombre AS silobolsa
       FROM alertas a JOIN nodos n ON n.id = a.nodo_id JOIN silobolsas s ON s.id = n.silobolsa_id
       WHERE a.reconocida = 0 AND a.notificada = 0 AND (a.nivel = 'crit' OR a.creada <= ?) ORDER BY a.id`),
     marcarNotificada: q('UPDATE alertas SET notificada = 1 WHERE id = ?'),
     nuevoAviso: q('INSERT OR IGNORE INTO avisos (usuario, alerta_id, creada) VALUES (?, ?, ?)'),
-    avisosDe: q(`SELECT av.id, av.leido, av.creada, a.id AS alerta_id, a.variable, a.valor, a.nivel, a.ts,
+    avisosDe: q(`SELECT av.id, av.leido, av.creada, a.id AS alerta_id, a.variable, a.valor, a.nivel, a.ts, a.diagnostico,
       n.id AS nodo_id, n.nombre AS nodo, s.id AS silobolsa_id, s.nombre AS silobolsa
       FROM avisos av JOIN alertas a ON a.id = av.alerta_id JOIN nodos n ON n.id = a.nodo_id JOIN silobolsas s ON s.id = n.silobolsa_id
       WHERE av.usuario = ? ORDER BY av.creada DESC, av.id DESC LIMIT 100`),
@@ -118,7 +121,7 @@ export function crearRepo(db) {
     quitarSilencio: q('DELETE FROM silenciadas WHERE usuario = ? AND silobolsa_id = ?'),
     siguen: q(`SELECT email FROM usuarios WHERE email NOT IN
       (SELECT usuario FROM silenciadas WHERE silobolsa_id = ?) ORDER BY email`),
-    alertas: q(`SELECT a.id, a.nodo_id, a.variable, a.valor, a.nivel, a.ts, a.reconocida, n.nombre AS nodo, s.id AS silobolsa_id, s.nombre AS silobolsa
+    alertas: q(`SELECT a.id, a.nodo_id, a.variable, a.valor, a.nivel, a.ts, a.reconocida, a.diagnostico, n.nombre AS nodo, s.id AS silobolsa_id, s.nombre AS silobolsa
       FROM alertas a JOIN nodos n ON n.id = a.nodo_id JOIN silobolsas s ON s.id = n.silobolsa_id
       WHERE a.reconocida = ? ORDER BY a.ts DESC LIMIT 200`),
     alerta: q('SELECT id FROM alertas WHERE id = ?'),
@@ -170,7 +173,13 @@ export function crearRepo(db) {
     ultimaLectura(nodoId) { return st.ultima.get(nodoId) || null; },
     lecturasDesde(nodoId, desde) { return st.entre.all(nodoId, desde); },
     alertaActiva(nodoId, variable) { return !!st.alertaActiva.get(nodoId, variable); },
-    crearAlerta(nodoId, variable, valor, nivel, ts) { st.nuevaAlerta.run(nodoId, variable, valor, nivel, ts, Date.now()); },
+    crearAlerta(nodoId, variable, valor, nivel, ts, diagnostico = null) {
+      st.nuevaAlerta.run(nodoId, variable, valor, nivel, ts, Date.now(), diagnostico);
+    },
+    // Lecturas de un nodo entre dos instantes, para armar el diagnóstico de una alarma.
+    lecturasEntre(nodoId, desde, hasta) {
+      return st.entreAcotado.all(nodoId, desde, hasta);
+    },
     alertasPorNotificar(atencionAntesDe) { return st.alertasPorNotificar.all(atencionAntesDe); },
     marcarNotificada(id) { st.marcarNotificada.run(id); },
     crearAviso(usuario, alertaId, creada) { st.nuevoAviso.run(usuario, alertaId, creada); },

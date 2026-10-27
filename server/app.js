@@ -7,8 +7,10 @@ import { VARIABLES, evaluar } from './umbrales.js';
 import { RANGOS, serie } from './serie.js';
 import { PATRONES, etiquetaVariable } from './patrones.js';
 import { crearBus } from './eventos.js';
+import { diagnosticar, VENTANA_DIAGNOSTICO } from './diagnostico.js';
 
-const descripcionDe = (variable) => (PATRONES[variable] ? PATRONES[variable].descripcion : null);
+// Lo que se muestra de una alerta: el diagnóstico de los factores si lo hay, o el texto del patrón.
+const descripcionDe = (a) => a.diagnostico || (PATRONES[a.variable] ? PATRONES[a.variable].descripcion : null);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CODE_TTL = 5 * 60 * 1000;
@@ -211,7 +213,7 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
 
   // Avisos personales del usuario de la sesión.
   api.get('/avisos', (req, res) => {
-    const avisos = repo.avisos(req.usuario).map((a) => ({ ...a, etiqueta: etiquetaVariable(a.variable), descripcion: descripcionDe(a.variable) }));
+    const avisos = repo.avisos(req.usuario).map((a) => ({ ...a, etiqueta: etiquetaVariable(a.variable), descripcion: descripcionDe(a) }));
     res.json({ avisos, no_leidos: repo.noLeidos(req.usuario), preferencias: repo.preferencias(req.usuario) });
   });
 
@@ -236,7 +238,7 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
   });
 
   api.get('/alertas', (req, res) => {
-    res.json(repo.alertas(req.query.reconocidas === '1').map((a) => ({ ...a, etiqueta: etiquetaVariable(a.variable), descripcion: descripcionDe(a.variable) })));
+    res.json(repo.alertas(req.query.reconocidas === '1').map((a) => ({ ...a, etiqueta: etiquetaVariable(a.variable), descripcion: descripcionDe(a) })));
   });
 
   api.post('/alertas/:id/reconocer', (req, res) => {
@@ -258,6 +260,9 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
     return Object.keys(v).length ? v : null;
   }
 
+  // Diagnóstico de una alarma: factores de las 2 h previas, leídos de la base.
+  const diagnosticoDe = (nodoId, ts) => diagnosticar(repo.lecturasEntre(nodoId, ts - VENTANA_DIAGNOSTICO, ts));
+
   // Lecturas de los nodos: las mandan el gateway LoRa o la central (cada una con su clave).
   const recibirLecturas = (req, res) => {
     const lote = Array.isArray(req.body) ? req.body : [req.body];
@@ -278,7 +283,7 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
         aceptadas++;
         for (const a of evaluar(valores, reglas)) {
           if (repo.alertaActiva(nodo.id, a.variable)) continue;
-          repo.crearAlerta(nodo.id, a.variable, a.valor, a.nivel, ts);
+          repo.crearAlerta(nodo.id, a.variable, a.valor, a.nivel, ts, diagnosticoDe(nodo.id, ts));
           alertasNuevas++;
         }
       });
@@ -319,7 +324,7 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
         const nivel = it.nivel === 'warn' ? 'warn' : 'crit';
         const valor = typeof it.valor === 'number' && Number.isFinite(it.valor) ? it.valor : 0;
         const ts = typeof it.ts === 'number' && Number.isFinite(it.ts) ? Math.round(it.ts) : Date.now();
-        repo.crearAlerta(nodo.id, it.tipo, valor, nivel, ts);
+        repo.crearAlerta(nodo.id, it.tipo, valor, nivel, ts, diagnosticoDe(nodo.id, ts));
         nuevas++;
       });
     });

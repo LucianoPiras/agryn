@@ -29,7 +29,7 @@ Todo el texto de la interfaz va en español rioplatense (voseo: "Cambialo", "Pro
 
 ## Pendientes pensados
 - Firmware del ESP32 gateway LoRa (la API ya recibe lecturas en `POST /api/gateway/lecturas`).
-- La central (ESP32 con internet) manda datos cada 30 s a `POST /api/central/lecturas` y anomalías en hasta 3 s a `POST /api/central/anomalias`. La app no analiza mediciones. La pantalla recibe eventos en vivo por `GET /api/eventos`.
+- La central (ESP32 con internet) manda datos cada 30 s a `POST /api/central/lecturas` y anomalías en hasta 3 s a `POST /api/central/anomalias`. La app no detecta anomalías: cuando llega una alarma, arma un diagnóstico orientativo con los factores de las 2 h previas (`server/diagnostico.js`). La pantalla recibe eventos en vivo por `GET /api/eventos`.
 - WhatsApp y Telegram como canales de aviso (necesitan credenciales y acceso a sus servicios).
 - Definir umbrales reales por tipo de grano (hoy se editan desde la app).
 - Notificaciones de alerta fuera de la app (push, mail o WhatsApp).

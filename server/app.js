@@ -18,7 +18,7 @@ const SESSION_TTL = 12 * 60 * 60 * 1000;
 const MAX_INTENTOS = 3;
 const MAX_LOTE = 500;
 
-export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, notificador, bus = crearBus(), dist = path.join(here, '..', 'dist') }) {
+export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, notificador, vapidPublica = null, bus = crearBus(), dist = path.join(here, '..', 'dist') }) {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
 
@@ -215,6 +215,27 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
   api.get('/avisos', (req, res) => {
     const avisos = repo.avisos(req.usuario).map((a) => ({ ...a, etiqueta: etiquetaVariable(a.variable), descripcion: descripcionDe(a) }));
     res.json({ avisos, no_leidos: repo.noLeidos(req.usuario), preferencias: repo.preferencias(req.usuario) });
+  });
+
+  // Notificaciones push: cada dispositivo que aceptó las notificaciones guarda su suscripción.
+  api.get('/push/clave', (req, res) => {
+    if (!vapidPublica) return res.status(503).json({ error: 'Las notificaciones push no están configuradas en el servidor.' });
+    res.json({ clave: vapidPublica });
+  });
+  api.post('/push/suscribir', (req, res) => {
+    const s = req.body || {};
+    const url = typeof s.endpoint === 'string' && /^https:\/\//.test(s.endpoint);
+    const claves = s.keys || {};
+    if (!url || typeof claves.p256dh !== 'string' || typeof claves.auth !== 'string') {
+      return res.status(400).json({ error: 'La suscripción no es válida.' });
+    }
+    repo.guardarSuscripcion(req.usuario, { endpoint: s.endpoint, p256dh: claves.p256dh, auth: claves.auth });
+    res.json({ ok: true });
+  });
+  api.delete('/push/suscribir', (req, res) => {
+    if (typeof req.body?.endpoint !== 'string') return res.status(400).json({ error: 'Indicá el dispositivo a quitar.' });
+    repo.quitarSuscripcion(req.body.endpoint, req.usuario);
+    res.json({ ok: true });
   });
 
   // Silenciar o volver a recibir los avisos de una silobolsa.

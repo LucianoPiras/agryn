@@ -39,3 +39,26 @@ self.addEventListener('fetch', (e) => {
     })));
   }
 });
+
+// Notificaciones push: llegan aunque la app esté cerrada. Las críticas no se cierran solas.
+self.addEventListener('push', (e) => {
+  let aviso = {};
+  try { aviso = e.data ? e.data.json() : {}; } catch (err) { aviso = { titulo: 'AGRYN Monitoreo', detalle: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(aviso.titulo || 'AGRYN Monitoreo', {
+    body: aviso.detalle || 'Hay un aviso nuevo. Revisá la app.',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    requireInteraction: aviso.nivel === 'crit',
+    data: { url: aviso.url || '/' }
+  }));
+});
+
+// Al tocar la notificación: se enfoca la app si ya está abierta, o se abre.
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ventanas) => {
+    const abierta = ventanas.find((w) => 'focus' in w);
+    if (abierta) return abierta.focus();
+    return self.clients.openWindow(e.notification.data.url);
+  }));
+});

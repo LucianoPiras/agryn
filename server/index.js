@@ -8,6 +8,9 @@
 //   AGRYN_CENTRAL_KEY   clave del ESP32 central, para mandar anomalías (otra clave, distinta)
 //   AGRYN_DB            archivo SQLite (por defecto data/agryn.db)
 //   AGRYN_MAIL=json     modo de prueba: no envía correos y muestra el código en la consola
+//   AGRYN_VAPID_PUBLIC  clave pública para notificaciones push (se genera con tools/generar-claves-push.js)
+//   AGRYN_VAPID_PRIVATE clave privada para notificaciones push (secreta, no la compartas)
+//   AGRYN_VAPID_SUBJECT correo de contacto para los servicios push (opcional)
 //   PORT                puerto del servidor (3001 por defecto)
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +20,7 @@ import { crearApp } from './app.js';
 import { crearNotificador } from './notificaciones.js';
 import { crearBus } from './eventos.js';
 import { verificarSinDatos } from './salud.js';
+import { crearCanalPush } from './push.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
@@ -54,8 +58,17 @@ const correo = {
     text: detalle + '\n\nRevisá la app para ver el nodo y reconocer la alerta.'
   })
 };
+// Canal push: llega al celular aunque la app esté cerrada. Necesita las claves VAPID (tools/generar-claves-push.js).
+const VAPID_PUBLICA = process.env.AGRYN_VAPID_PUBLIC || '';
+const VAPID_PRIVADA = process.env.AGRYN_VAPID_PRIVATE || '';
+const canales = [correo];
+if (VAPID_PUBLICA && VAPID_PRIVADA) {
+  canales.push(crearCanalPush({ repo, publica: VAPID_PUBLICA, privada: VAPID_PRIVADA, contacto: process.env.AGRYN_VAPID_SUBJECT || `mailto:${REMITENTE}` }));
+} else {
+  console.warn('Aviso: faltan AGRYN_VAPID_PUBLIC y AGRYN_VAPID_PRIVATE; las notificaciones push están desactivadas.');
+}
 const bus = crearBus();
-const notificador = crearNotificador({ repo, canales: [correo], bus });
+const notificador = crearNotificador({ repo, canales, bus });
 // Revisa cada minuto las alertas de atención que siguen sin reconocerse.
 setInterval(() => notificador.procesar(), 60 * 1000);
 // Si una silobolsa deja de mandar datos, la alerta sale enseguida.
@@ -67,6 +80,7 @@ const app = crearApp({
   remitente: REMITENTE,
   gatewayKey: process.env.AGRYN_GATEWAY_KEY || '',
   centralKey: process.env.AGRYN_CENTRAL_KEY || '',
+  vapidPublica: VAPID_PUBLICA || null,
   bus,
   notificador
 });

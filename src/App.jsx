@@ -61,12 +61,22 @@ function sesionLocal() {
   try { return window.localStorage.getItem(SESION); } catch (e) { return null; }
 }
 
+// ¿El navegador puede recibir notificaciones push con la app cerrada?
+const soportaPush = () => typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && typeof Notification !== 'undefined';
+// La clave pública llega en base64 de URL; el navegador la pide como bytes.
+function claveDeServidor(base64Url) {
+  const b64 = (base64Url + '='.repeat((4 - (base64Url.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+// iPhone y iPad solo reciben push si la app está instalada en la pantalla de inicio.
+const iosSinInstalar = () => /iPhone|iPad/.test(navigator.userAgent) && !(window.matchMedia('(display-mode: standalone)').matches || navigator.standalone);
+
 export default class App extends React.Component {
   constructor(props) {
     super(props);
     this.state = {
       bags: [], datos: {}, alertas: [], view: 'overview', range: '24h', bag: null, node: null, cursor: null, tick: 0,
-      nuevoNodo: '', avisoApp: '', avisos: [], noLeidos: 0, avisosAbiertos: false, preferencias: [], menuAbierto: false, umbrales: VARS, umbralesAbiertos: false, umbralEdit: {}, form: { open: false, name: '', content: 'Sin definir' },
+      nuevoNodo: '', avisoApp: '', pushActivo: false, avisos: [], noLeidos: 0, avisosAbiertos: false, preferencias: [], menuAbierto: false, umbrales: VARS, umbralesAbiertos: false, umbralEdit: {}, form: { open: false, name: '', content: 'Sin definir' },
       del: { step: null, pw: '', err: false }, confirm: null, confirmAt: 0,
       auth: { user: null, token: null, enviando: false, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' }
     };
@@ -150,6 +160,7 @@ export default class App extends React.Component {
   async cargarTodo() {
     const bags = await this.cargarSilobolsas();
     await Promise.all([this.cargarSeries(bags), this.cargarAlertas(), this.cargarAvisos(), this.cargarUmbrales()]);
+    this.revisarPush();
   }
 
   // Conexión en tiempo real: la central y las anomalías llegan en el momento, sin esperar la próxima consulta
@@ -200,6 +211,30 @@ export default class App extends React.Component {
     this.setState({ avisos: r.data.avisos, noLeidos: r.data.no_leidos, preferencias: r.data.preferencias });
     // Solo avisa de lo nuevo: la primera carga de la sesión no dispara nada.
     if (conocidos) r.data.avisos.filter((a) => a.nivel === 'crit' && !a.leido && !conocidos.has(a.id)).forEach((a) => this.avisarEnEscritorio(a));
+  }
+  // Este dispositivo ya tiene suscripción push (local, no pide nada al servidor).
+  async revisarPush() {
+    if (!soportaPush()) return;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!!sub !== this.state.pushActivo) this.setState({ pushActivo: !!sub });
+  }
+  // Pide permiso, guarda la suscripción de este dispositivo en el servidor y deja el aviso listo.
+  async activarPush() {
+    if (!soportaPush()) return this.error('Este navegador no admite notificaciones en segundo plano.');
+    try {
+      if ((await Notification.requestPermission()) !== 'granted') return this.error('Sin permiso no podemos avisarte. Podés cambiarlo en la configuración del navegador.');
+      const clave = await this.api('/api/push/clave');
+      if (!clave.ok) return this.error(clave.data?.error || 'Las notificaciones todavía no están disponibles.');
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: claveDeServidor(clave.data.clave) });
+      const r = await this.api('/api/push/suscribir', { metodo: 'POST', cuerpo: sub.toJSON() });
+      if (!r.ok) return this.error('No se pudo guardar este dispositivo. Probá de nuevo.');
+      this.setState({ pushActivo: true });
+      this.error('Listo: este celular recibe las alertas aunque la app esté cerrada.');
+    } catch (e) {
+      this.error('No se pudieron activar las notificaciones en este dispositivo.');
+    }
   }
   avisarEnEscritorio(a) {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
@@ -630,7 +665,10 @@ export default class App extends React.Component {
       toggleMenu: () => self.setState((s) => ({ menuAbierto: !s.menuAbierto })),
       cerrarMenu: () => self.setState({ menuAbierto: false }),
       permisoAvisos: typeof Notification === 'undefined' ? 'no-disponible' : Notification.permission,
-      pedirPermisoAvisos: () => { Notification.requestPermission(); },
+      pedirPermisoAvisos: () => self.activarPush(),
+      pushActivo: S.pushActivo,
+      mostrarPush: soportaPush() && !S.pushActivo && typeof Notification !== 'undefined' && Notification.permission !== 'denied',
+      iosSinInstalar: iosSinInstalar(),
       umbralesRows, umbralesAbiertos: S.umbralesAbiertos,
       toggleUmbrales: () => {
         if (S.umbralesAbiertos) return self.setState({ umbralesAbiertos: false });
@@ -942,13 +980,13 @@ export default class App extends React.Component {
       </button>
       </div>
       </div>
-      {v.permisoAvisos === 'default' && (<div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center", padding: "12px", borderRadius: "8px", background: "#F1F6F3" }}>
+      {v.mostrarPush && (<div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center", padding: "12px", borderRadius: "8px", background: "#F1F6F3" }}>
       <p style={{ margin: "0", flex: "1 1 220px", fontSize: "13px" }}>
-      Activá las notificaciones de este navegador para enterarte de las alertas críticas aunque la pestaña no esté a la vista.
+      {v.iosSinInstalar ? "En iPhone, primero agregá AGRYN a la pantalla de inicio (botón Compartir) y abrila desde ahí para recibir las alertas." : "Activá las notificaciones de este celular para enterarte de las alertas críticas aunque la app esté cerrada."}
       </p>
-      <button type="button" className="btn primary" onClick={v.pedirPermisoAvisos}>
+      {!v.iosSinInstalar && (<button type="button" className="btn primary" onClick={v.pedirPermisoAvisos}>
       Activar notificaciones
-      </button>
+      </button>)}
       </div>)}
       {v.permisoAvisos === 'denied' && (<p role="note" style={{ margin: "0", fontSize: "13px", color: "#8F2113", fontWeight: "600" }}>
       Las notificaciones de este navegador están bloqueadas. Para verlas, habilitalas en la configuración del navegador. Mientras tanto, las alertas críticas aparecen en el banner rojo de la app y llegan por correo.

@@ -23,6 +23,10 @@ services:
         sync: false
       - key: AGRYN_CENTRAL_KEY
         sync: false
+      - key: AGRYN_VAPID_PUBLIC
+        sync: false
+      - key: AGRYN_VAPID_PRIVATE
+        sync: false
     disk:
       name: agryn-datos
       mountPath: /var/data

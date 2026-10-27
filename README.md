@@ -72,7 +72,7 @@ Al llegar una alerta, la app mira los factores de las 2 horas previas (`server/d
 
 Las anomalías se mandan con `POST /api/central/anomalias` y tienen este formato: `device_id`, `tipo` (`fermentacion`, `rotura` o una variable), `nivel` (`crit` por defecto, o `warn`) y, opcionalmente, `valor` y `ts`. Si el nodo ya tiene una alerta de ese tipo sin reconocer, no se repite.
 
-**Notificaciones de alertas críticas.** Llegan por tres caminos: el banner rojo de la app, el centro de avisos y el correo. Si el usuario activa las notificaciones del navegador, también aparecen como notificación del sistema mientras la app está abierta. La app no puede saltear las notificaciones que el usuario o el navegador tienen desactivadas. WhatsApp y Telegram todavía no están conectados: necesitan sus credenciales y el acceso a sus servicios desde el servidor.
+**Notificaciones de alertas críticas.** Llegan por tres caminos: el banner rojo de la app, el centro de avisos y el correo. Con las claves VAPID, cada dispositivo que lo acepta recibe la alerta como notificación push, aunque la app esté cerrada (`server/push.js`). El botón «Activar notificaciones» del centro de avisos suscribe el dispositivo. Las suscripciones que el navegador da de baja se borran solas. La app no puede saltear las notificaciones que el usuario o el navegador tienen desactivadas. WhatsApp y Telegram todavía no están conectados: necesitan sus credenciales y el acceso a sus servicios desde el servidor.
 
 **Celular.** En pantallas chicas la barra lateral se convierte en un menú deslizable que se abre con "Menú", y los avisos se abren con "Avisos". Todos los controles táctiles miden al menos 44 px.
 
@@ -89,6 +89,9 @@ GMAIL_USER=Agryn.silobolsa@gmail.com
 GMAIL_APP_PASSWORD=...        # contraseña de aplicación de esa cuenta (requiere verificación en dos pasos)
 AGRYN_USUARIOS=[{"email":"...","password":"..."}]   # solo la primera vez: después los usuarios se administran en la base
 AGRYN_CENTRAL_KEY=...                                       # clave del ESP32 central (anomalías)
+AGRYN_VAPID_PUBLIC=...                                      # notificaciones push (node tools/generar-claves-push.js)
+AGRYN_VAPID_PRIVATE=...                                     # clave privada push: secreta
+AGRYN_VAPID_SUBJECT=mailto:Agryn.silobolsa@gmail.com        # opcional
 ```
 
 ```bash

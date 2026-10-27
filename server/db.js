@@ -63,6 +63,15 @@ export function abrirBase(ruta = ':memory:') {
       silobolsa_id INTEGER NOT NULL REFERENCES silobolsas(id) ON DELETE CASCADE,
       PRIMARY KEY (usuario, silobolsa_id)
     );
+    -- Un registro por dispositivo del usuario que aceptó las notificaciones push.
+    CREATE TABLE IF NOT EXISTS suscripciones_push (
+      endpoint TEXT PRIMARY KEY,
+      usuario TEXT NOT NULL,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      creada INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS suscripciones_por_usuario ON suscripciones_push(usuario);
   `);
   // Umbrales de ejemplo, solo la primera vez: después los cambia el equipo desde la app.
   const sembrar = db.prepare('INSERT OR IGNORE INTO umbrales (variable, min, max) VALUES (?, ?, ?)');
@@ -125,7 +134,10 @@ export function crearRepo(db) {
       FROM alertas a JOIN nodos n ON n.id = a.nodo_id JOIN silobolsas s ON s.id = n.silobolsa_id
       WHERE a.reconocida = ? ORDER BY a.ts DESC LIMIT 200`),
     alerta: q('SELECT id FROM alertas WHERE id = ?'),
-    reconocer: q('UPDATE alertas SET reconocida = 1 WHERE id = ?')
+    reconocer: q('UPDATE alertas SET reconocida = 1 WHERE id = ?'),
+    suscripcionesDe: q('SELECT endpoint, p256dh, auth FROM suscripciones_push WHERE usuario = ?'),
+    guardarSuscripcion: q('INSERT OR REPLACE INTO suscripciones_push (endpoint, usuario, p256dh, auth, creada) VALUES (?, ?, ?, ?, ?)'),
+    quitarSuscripcion: q('DELETE FROM suscripciones_push WHERE endpoint = ? AND usuario = ?')
   };
 
   return {
@@ -209,6 +221,11 @@ export function crearRepo(db) {
       const r = st.claveDe.get(email);
       return !!r && verificarClave(clave, r.password_hash);
     },
+    suscripcionesDe(usuario) { return st.suscripcionesDe.all(usuario); },
+    guardarSuscripcion(usuario, { endpoint, p256dh, auth }) {
+      st.guardarSuscripcion.run(endpoint, usuario, p256dh, auth, Date.now());
+    },
+    quitarSuscripcion(endpoint, usuario) { return st.quitarSuscripcion.run(endpoint, usuario).changes > 0; },
     alertas(reconocida) { return st.alertas.all(reconocida ? 1 : 0); },
     reconocerAlerta(id) {
       if (!st.alerta.get(id)) return false;

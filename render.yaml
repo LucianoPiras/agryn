@@ -21,6 +21,8 @@ services:
         sync: false
       - key: AGRYN_GATEWAY_KEY
         sync: false
+      - key: AGRYN_CENTRAL_KEY
+        sync: false
     disk:
       name: agryn-datos
       mountPath: /var/data

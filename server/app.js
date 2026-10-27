@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { VARIABLES, evaluar } from './umbrales.js';
+import { RANGOS, serie } from './serie.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CODE_TTL = 5 * 60 * 1000;
@@ -169,6 +170,17 @@ export function crearApp({ repo, transporte, usuarios, gatewayKey, remitente, di
     const id = idDe(req.params.id);
     if (!id || !repo.nodo(id)) return noEncontrado(res, 'Nodo');
     res.json(repo.ultimaLectura(id));
+  });
+
+  // Serie lista para graficar: mismos rangos y cantidad de puntos que la pantalla.
+  api.get('/nodos/:id/serie', (req, res) => {
+    const id = idDe(req.params.id);
+    if (!id || !repo.nodo(id)) return noEncontrado(res, 'Nodo');
+    const rango = req.query.rango || '24h';
+    if (!RANGOS[rango]) return res.status(400).json({ error: 'Rango inválido. Usá 24h, 7d o 30d.' });
+    const ahora = Date.now();
+    const lecturas = repo.lecturasDesde(id, ahora - RANGOS[rango].n * RANGOS[rango].paso);
+    res.json(serie(lecturas, rango, ahora));
   });
 
   api.get('/alertas', (req, res) => {

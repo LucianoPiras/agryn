@@ -36,6 +36,15 @@ Content-Type: application/json
 
 **API de la app** (`/api/...`, requiere sesión): `silobolsas` (CRUD), `silobolsas/:id/nodos`, `nodos/:id/lecturas?desde=&hasta=&limite=`, `nodos/:id/ultima`, `alertas?reconocidas=0|1`, `alertas/:id/reconocer` y `umbrales`.
 
+Serie para graficar: `GET /api/nodos/:id/serie?rango=24h|7d|30d` devuelve los puntos promediados por intervalo (96, 84 y 90 puntos, como en la pantalla), con los huecos rellenados.
+
+**Simulador de nodos** (sin hardware): manda lecturas al gateway como lo haría el ESP32. Los nodos tienen que existir en la app antes.
+
+```bash
+AGRYN_GATEWAY_KEY=... node tools/simulador.js --dispositivos ESP32-A1,ESP32-A2 --horas 48          # historial
+AGRYN_GATEWAY_KEY=... node tools/simulador.js --dispositivos ESP32-A1 --en-vivo 60                 # en vivo
+```
+
 Pruebas: `npm test`.
 
 ## Correo y servidor

@@ -53,6 +53,7 @@ export function crearRepo(db) {
     insertLectura: q('INSERT OR IGNORE INTO lecturas (nodo_id, ts, ph, temp, hum, co2) VALUES (?, ?, ?, ?, ?, ?)'),
     lecturas: q('SELECT ts, ph, temp, hum, co2 FROM lecturas WHERE nodo_id = ? AND ts BETWEEN ? AND ? ORDER BY ts DESC LIMIT ?'),
     ultima: q('SELECT ts, ph, temp, hum, co2 FROM lecturas WHERE nodo_id = ? ORDER BY ts DESC LIMIT 1'),
+    entre: q('SELECT ts, ph, temp, hum, co2 FROM lecturas WHERE nodo_id = ? AND ts >= ? ORDER BY ts ASC'),
     alertaActiva: q('SELECT id FROM alertas WHERE nodo_id = ? AND variable = ? AND reconocida = 0'),
     nuevaAlerta: q('INSERT INTO alertas (nodo_id, variable, valor, nivel, ts) VALUES (?, ?, ?, ?, ?)'),
     alertas: q(`SELECT a.id, a.nodo_id, a.variable, a.valor, a.nivel, a.ts, a.reconocida, n.nombre AS nodo, s.nombre AS silobolsa
@@ -104,6 +105,7 @@ export function crearRepo(db) {
       return st.lecturas.all(nodoId, desde, hasta, limite);
     },
     ultimaLectura(nodoId) { return st.ultima.get(nodoId) || null; },
+    lecturasDesde(nodoId, desde) { return st.entre.all(nodoId, desde); },
     alertaActiva(nodoId, variable) { return !!st.alertaActiva.get(nodoId, variable); },
     crearAlerta(nodoId, variable, valor, nivel, ts) { st.nuevaAlerta.run(nodoId, variable, valor, nivel, ts); },
     alertas(reconocida) { return st.alertas.all(reconocida ? 1 : 0); },

@@ -128,3 +128,22 @@ test('edita una silobolsa', async () => {
   assert.equal(r.data.contenido, 'Forraje');
   assert.equal(r.data.nombre, 'Temporal');
 });
+
+test('la serie promedia por intervalo y rellena los huecos', async () => {
+  const silo = await llamar('POST', '/api/silobolsas', { nombre: 'Serie', contenido: 'Soja' });
+  const nodo = await llamar('POST', `/api/silobolsas/${silo.data.id}/nodos`, { nombre: 'Nodo S', device_id: 'ESP32-S1' });
+  const ahora = Date.now();
+  await gateway([
+    { device_id: 'ESP32-S1', ph: 6.4, ts: ahora - 90 * 60000 },
+    { device_id: 'ESP32-S1', ph: 6.0, ts: ahora - 5 * 60000 },
+    { device_id: 'ESP32-S1', ph: 6.2, ts: ahora - 3 * 60000 }
+  ]);
+  const r = await llamar('GET', `/api/nodos/${nodo.data.id}/serie?rango=24h`);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.n, 96);
+  assert.equal(r.data.valores.ph.length, 96);
+  assert.ok(Math.abs(r.data.valores.ph[95] - 6.1) < 1e-9, 'el último intervalo promedia las dos lecturas recientes');
+  assert.equal(r.data.valores.ph[0], 6.4, 'los huecos del principio toman el primer valor conocido');
+  assert.equal(r.data.valores.temp.every((x) => x == null), true, 'sin lecturas de temperatura, la serie queda vacía');
+  assert.equal((await llamar('GET', `/api/nodos/${nodo.data.id}/serie?rango=1y`)).status, 400);
+});

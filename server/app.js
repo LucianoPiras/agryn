@@ -12,7 +12,7 @@ const SESSION_TTL = 12 * 60 * 60 * 1000;
 const MAX_INTENTOS = 3;
 const MAX_LOTE = 500;
 
-export function crearApp({ repo, transporte, usuarios, gatewayKey, remitente, notificador, dist = path.join(here, '..', 'dist') }) {
+export function crearApp({ repo, transporte, gatewayKey, remitente, notificador, dist = path.join(here, '..', 'dist') }) {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
 
@@ -39,7 +39,7 @@ export function crearApp({ repo, transporte, usuarios, gatewayKey, remitente, no
   app.post('/api/login', async (req, res) => {
     const email = normalizarEmail(req.body?.email);
     const password = String(req.body?.password || '');
-    if (!usuarios.some((u) => u.email === email && u.password === password)) {
+    if (!repo.verificarUsuario(email, password)) {
       return res.status(401).json({ error: 'Correo o contraseña incorrectos.' });
     }
     try {
@@ -121,7 +121,20 @@ export function crearApp({ repo, transporte, usuarios, gatewayKey, remitente, no
   const textoValido = (x, max) => typeof x === 'string' && x.trim().length > 0 && x.trim().length <= max;
   const noEncontrado = (res, que) => res.status(404).json({ error: que + ' no encontrada.' });
 
-  api.get('/umbrales', (req, res) => res.json(VARIABLES));
+  // Umbrales de alerta: los cambia cualquier usuario logueado. Aplican a las lecturas que llegan después.
+  api.get('/umbrales', (req, res) => res.json(repo.umbrales()));
+
+  api.put('/umbrales/:clave', (req, res) => {
+    const clave = String(req.params.clave);
+    if (!repo.umbrales().some((u) => u.key === clave)) return noEncontrado(res, 'Variable');
+    const min = req.body?.min, max = req.body?.max;
+    if (typeof min !== 'number' || typeof max !== 'number' || !Number.isFinite(min) || !Number.isFinite(max)) {
+      return res.status(400).json({ error: 'Mínimo y máximo tienen que ser números.' });
+    }
+    if (min >= max) return res.status(400).json({ error: 'El mínimo tiene que ser menor que el máximo.' });
+    repo.editarUmbral(clave, min, max);
+    res.json(repo.umbrales());
+  });
 
   api.get('/silobolsas', (req, res) => res.json(repo.silobolsas()));
 
@@ -141,7 +154,11 @@ export function crearApp({ repo, transporte, usuarios, gatewayKey, remitente, no
     res.json(repo.editarSilobolsa(id, { nombre: nombre.trim(), contenido: contenido.trim() }));
   });
 
+  // Borrar una silobolsa borra sus nodos y lecturas: pide la contraseña del usuario de la sesión.
   api.delete('/silobolsas/:id', (req, res) => {
+    if (!repo.verificarUsuario(req.usuario, String(req.body?.password || ''))) {
+      return res.status(403).json({ error: 'Contraseña incorrecta. No se eliminó la silobolsa; probá de nuevo.' });
+    }
     const id = idDe(req.params.id);
     if (!id || !repo.borrarSilobolsa(id)) return noEncontrado(res, 'Silobolsa');
     res.status(204).end();
@@ -232,6 +249,7 @@ export function crearApp({ repo, transporte, usuarios, gatewayKey, remitente, no
     const lote = Array.isArray(req.body) ? req.body : [req.body];
     if (lote.length === 0 || lote.length > MAX_LOTE) return res.status(400).json({ error: 'Enviá entre 1 y ' + MAX_LOTE + ' lecturas por pedido.' });
 
+    const reglas = repo.umbrales();
     const rechazadas = [];
     let aceptadas = 0, alertasNuevas = 0, duplicadas = 0;
     repo.transaccion(() => {
@@ -244,7 +262,7 @@ export function crearApp({ repo, transporte, usuarios, gatewayKey, remitente, no
         const ts = typeof it.ts === 'number' && Number.isFinite(it.ts) ? Math.round(it.ts) : Date.now();
         if (!repo.guardarLectura(nodo.id, ts, valores)) return duplicadas++;
         aceptadas++;
-        for (const a of evaluar(valores)) {
+        for (const a of evaluar(valores, reglas)) {
           if (repo.alertaActiva(nodo.id, a.variable)) continue;
           repo.crearAlerta(nodo.id, a.variable, a.valor, a.nivel, ts);
           alertasNuevas++;

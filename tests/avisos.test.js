@@ -18,8 +18,10 @@ before(async () => {
     sendMail: async (m) => { codigos[m.to] = m.text.match(/es (\d{6})\./)[1]; }
   };
   const canal = { nombre: 'prueba', enviar: async (aviso, para) => { enviadosPorCanal.push({ para, titulo: aviso.titulo }); } };
-  notificador = crearNotificador({ repo, usuarios: [ANA, BRUNO], canales: [canal] });
-  const app = crearApp({ repo, transporte, remitente: 'Agryn.silobolsa@gmail.com', usuarios: [ANA, BRUNO], gatewayKey: CLAVE_GATEWAY, notificador });
+  repo.crearUsuario(ANA.email, ANA.password);
+  repo.crearUsuario(BRUNO.email, BRUNO.password);
+  notificador = crearNotificador({ repo, canales: [canal] });
+  const app = crearApp({ repo, transporte, remitente: 'Agryn.silobolsa@gmail.com', gatewayKey: CLAVE_GATEWAY, notificador });
   await new Promise((ok) => { server = app.listen(0, '127.0.0.1', ok); });
   base = `http://127.0.0.1:${server.address().port}`;
 });

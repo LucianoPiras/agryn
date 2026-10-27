@@ -1,5 +1,7 @@
 // Almacenamiento de AGRYN Monitoreo con SQLite (módulo integrado de Node 22).
 import { DatabaseSync } from 'node:sqlite';
+import { VARIABLES } from './umbrales.js';
+import { hashClave, verificarClave } from './clave.js';
 
 export function abrirBase(ruta = ':memory:') {
   const db = new DatabaseSync(ruta);
@@ -44,7 +46,20 @@ export function abrirBase(ruta = ':memory:') {
       UNIQUE (usuario, alerta_id)
     );
     CREATE INDEX IF NOT EXISTS avisos_por_usuario ON avisos(usuario, leido);
+    CREATE TABLE IF NOT EXISTS umbrales (
+      variable TEXT PRIMARY KEY,
+      min REAL NOT NULL,
+      max REAL NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS usuarios (
+      email TEXT PRIMARY KEY,
+      password_hash TEXT NOT NULL,
+      creado INTEGER NOT NULL
+    );
   `);
+  // Umbrales de ejemplo, solo la primera vez: después los cambia el equipo desde la app.
+  const sembrar = db.prepare('INSERT OR IGNORE INTO umbrales (variable, min, max) VALUES (?, ?, ?)');
+  for (const v of VARIABLES) sembrar.run(v.key, v.min, v.max);
   // Bases creadas antes de los avisos: las alertas que ya existían se dan por notificadas.
   const columnas = db.prepare('PRAGMA table_info(alertas)').all().map((c) => c.name);
   if (!columnas.includes('creada')) {
@@ -85,6 +100,11 @@ export function crearRepo(db) {
     noLeidos: q('SELECT COUNT(*) AS n FROM avisos WHERE usuario = ? AND leido = 0'),
     leerAviso: q('UPDATE avisos SET leido = 1 WHERE id = ? AND usuario = ?'),
     leerTodos: q('UPDATE avisos SET leido = 1 WHERE usuario = ? AND leido = 0'),
+    umbral: q('SELECT min, max FROM umbrales WHERE variable = ?'),
+    editaUmbral: q('UPDATE umbrales SET min = ?, max = ? WHERE variable = ?'),
+    usuarios: q('SELECT email FROM usuarios ORDER BY email'),
+    claveDe: q('SELECT password_hash FROM usuarios WHERE email = ?'),
+    nuevoUsuario: q('INSERT OR IGNORE INTO usuarios (email, password_hash, creado) VALUES (?, ?, ?)'),
     alertas: q(`SELECT a.id, a.nodo_id, a.variable, a.valor, a.nivel, a.ts, a.reconocida, n.nombre AS nodo, s.id AS silobolsa_id, s.nombre AS silobolsa
       FROM alertas a JOIN nodos n ON n.id = a.nodo_id JOIN silobolsas s ON s.id = n.silobolsa_id
       WHERE a.reconocida = ? ORDER BY a.ts DESC LIMIT 200`),
@@ -144,6 +164,19 @@ export function crearRepo(db) {
     noLeidos(usuario) { return st.noLeidos.get(usuario).n; },
     leerAviso(id, usuario) { return st.leerAviso.run(id, usuario).changes > 0; },
     leerTodosAvisos(usuario) { st.leerTodos.run(usuario); },
+    umbrales() {
+      return VARIABLES.map((v) => {
+        const r = st.umbral.get(v.key);
+        return { key: v.key, nombre: v.nombre, unidad: v.unidad, min: r.min, max: r.max };
+      });
+    },
+    editarUmbral(key, min, max) { st.editaUmbral.run(min, max, key); },
+    usuarios() { return st.usuarios.all().map((u) => u.email); },
+    crearUsuario(email, clave) { st.nuevoUsuario.run(email, hashClave(clave), Date.now()); },
+    verificarUsuario(email, clave) {
+      const r = st.claveDe.get(email);
+      return !!r && verificarClave(clave, r.password_hash);
+    },
     alertas(reconocida) { return st.alertas.all(reconocida ? 1 : 0); },
     reconocerAlerta(id) {
       if (!st.alerta.get(id)) return false;

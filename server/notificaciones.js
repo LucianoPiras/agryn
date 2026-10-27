@@ -23,20 +23,20 @@ export function textoDeAlerta(a) {
   return { titulo, detalle };
 }
 
-export function crearNotificador({ repo, usuarios, canales = [] }) {
+export function crearNotificador({ repo, canales = [] }) {
   // Revisa las alertas pendientes y crea los avisos. `ahora` se puede pasar para probar la demora.
   function procesar(ahora = Date.now()) {
     const pendientes = repo.alertasPorNotificar(ahora - DEMORA_ATENCION);
     for (const a of pendientes) {
       repo.marcarNotificada(a.id);
       const { titulo, detalle } = textoDeAlerta(a);
-      for (const u of usuarios) {
-        repo.crearAviso(u.email, a.id, ahora);
+      for (const email of repo.usuarios()) {
+        repo.crearAviso(email, a.id, ahora);
         for (const c of canales) {
           // Un canal caído no frena a los demás ni al resto del proceso.
           Promise.resolve()
-            .then(() => c.enviar({ titulo, detalle, nivel: a.nivel }, u.email))
-            .catch((e) => console.error(`No se pudo avisar por ${c.nombre} a ${u.email}:`, e.message));
+            .then(() => c.enviar({ titulo, detalle, nivel: a.nivel }, email))
+            .catch((e) => console.error(`No se pudo avisar por ${c.nombre} a ${email}:`, e.message));
         }
       }
     }

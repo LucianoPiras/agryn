@@ -14,7 +14,6 @@ const RANGES = {
 const C = { ok: '#005A36', okBg: 'rgba(0,90,54,0.10)', warn: '#8A4D00', warnBg: 'rgba(161,92,0,0.12)', crit: '#B02A18', critBg: 'rgba(200,50,31,0.10)', text: '#0F2A1F', muted: '#4F6459' };
 const SELF = 'rgba(250,246,233,0.14)', SELB = 'rgba(250,246,233,0.42)';
 const QUARTER = 15 * 60 * 1000;
-const DEMO_PASSWORD = '12345';
 // Contenidos que ofrece el selector. Cualquier otro texto se guarda como "Otro".
 const CONTENIDOS = ['Soja', 'Maíz', 'Trigo', 'Girasol', 'Sorgo', 'Cebada', 'Forraje', 'Sin definir'];
 // Silobolsa vacía: se muestra mientras no hay ninguna cargada, para que la pantalla no se rompa.
@@ -31,6 +30,8 @@ function desdeApi(x) {
 }
 function contentOf(b) { const c = b.content || 'Sin definir'; return c === 'Otro' ? ((b.custom || '').trim() || 'Otro') : c; }
 
+// Número escrito con coma o punto; vacío o inválido da NaN.
+function aNumero(x) { const t = String(x).trim().replace(',', '.'); return t === '' ? NaN : Number(t); }
 function fmt(v, dec) { return v == null ? '—' : v.toFixed(dec).replace('.', ','); }
 function dur(min) {
   if (min < 1) return 'menos de 1 min';
@@ -62,7 +63,7 @@ export default class App extends React.Component {
     super(props);
     this.state = {
       bags: [], datos: {}, alertas: [], view: 'overview', range: '24h', bag: null, node: null, cursor: null, tick: 0,
-      nuevoNodo: '', avisoApp: '', avisos: [], noLeidos: 0, avisosAbiertos: false, form: { open: false, name: '', content: 'Sin definir' },
+      nuevoNodo: '', avisoApp: '', avisos: [], noLeidos: 0, avisosAbiertos: false, umbrales: VARS, umbralesAbiertos: false, umbralEdit: {}, form: { open: false, name: '', content: 'Sin definir' },
       del: { step: null, pw: '', err: false }, confirm: null, confirmAt: 0,
       auth: { user: null, token: null, enviando: false, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' }
     };
@@ -98,7 +99,7 @@ export default class App extends React.Component {
     try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ }
     this.setState((s) => ({
       auth: Object.assign({}, s.auth, { user: null, token: null, paso: 'login', email: '', pw: '', code: '', err: '', aviso: '' }),
-      bags: [], datos: {}, alertas: [], avisos: [], noLeidos: 0, avisosAbiertos: false, bag: null, node: null
+      bags: [], datos: {}, alertas: [], avisos: [], noLeidos: 0, avisosAbiertos: false, umbralesAbiertos: false, bag: null, node: null
     }));
   }
   error(msg) {
@@ -138,7 +139,28 @@ export default class App extends React.Component {
   }
   async cargarTodo() {
     const bags = await this.cargarSilobolsas();
-    await Promise.all([this.cargarSeries(bags), this.cargarAlertas(), this.cargarAvisos()]);
+    await Promise.all([this.cargarSeries(bags), this.cargarAlertas(), this.cargarAvisos(), this.cargarUmbrales()]);
+  }
+
+  // Umbrales de alerta: se leen y se guardan en la API
+  async cargarUmbrales() {
+    const r = await this.api('/api/umbrales');
+    if (!r.ok) return;
+    this.setState({ umbrales: VARS.map((v) => { const a = r.data.find((x) => x.key === v.key); return a ? Object.assign({}, v, { min: a.min, max: a.max }) : v; }) });
+  }
+  editarUmbral(key, campo, texto) {
+    this.setState((s) => ({ umbralEdit: Object.assign({}, s.umbralEdit, { [key]: Object.assign({}, s.umbralEdit[key], { [campo]: texto, err: '', ok: '' }) }) }));
+  }
+  async guardarUmbral(key) {
+    const e = this.state.umbralEdit[key];
+    const fijar = (patch) => this.setState((s) => ({ umbralEdit: Object.assign({}, s.umbralEdit, { [key]: Object.assign({}, s.umbralEdit[key], patch) }) }));
+    const min = aNumero(e.min), max = aNumero(e.max);
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return fijar({ err: 'Ingresá dos números, por ejemplo 6,5 y 7,2.', ok: '' });
+    if (min >= max) return fijar({ err: 'El mínimo tiene que ser menor que el máximo.', ok: '' });
+    const r = await this.api('/api/umbrales/' + key, { metodo: 'PUT', cuerpo: { min: min, max: max } });
+    if (!r.ok) return fijar({ err: r.error, ok: '' });
+    fijar({ err: '', ok: 'Guardado. Aplica a las lecturas nuevas.' });
+    this.cargarUmbrales();
   }
 
   // Avisos personales del usuario de la sesión
@@ -173,8 +195,10 @@ export default class App extends React.Component {
       if (!r.ok) this.error(r.error);
     }, 500);
   }
-  async borrarSilobolsa(id) {
-    const r = await this.api('/api/silobolsas/' + id, { metodo: 'DELETE' });
+  async borrarSilobolsa(id, password) {
+    const r = await this.api('/api/silobolsas/' + id, { metodo: 'DELETE', cuerpo: { password: password } });
+    if (r.status === 403) return this.setState({ del: { step: 'pass', pw: '', err: true } });
+    this.setState({ del: { step: null, pw: '', err: false } });
     if (!r.ok) return this.error(r.error);
     this.setState({ bag: null, node: null, view: 'overview', cursor: null });
     this.cargarTodo();
@@ -220,6 +244,7 @@ export default class App extends React.Component {
 
   renderVals() {
     const S = this.state, self = this;
+    const VARS = S.umbrales;
     const bags = S.bags;
     const bo = bags.find((b) => b.id === S.bag) || bags[0] || SIN_SILO;
     const nsel = S.node == null ? null : (bo.nodes.find((x) => x.id === S.node) || null);
@@ -245,6 +270,18 @@ export default class App extends React.Component {
     alerts.sort((a, b) => (a.acked - b.acked) || ((a.sev === 'crit' ? 0 : 1) - (b.sev === 'crit' ? 0 : 1)));
     const go = (bid, nid, view) => () => self.setState({ bag: bid, node: nid, view: view, cursor: null });
     const doAck = (id) => () => self.reconocer(id);
+
+    // ---- umbrales de alerta: un renglón por variable ----
+    const umbralesRows = VARS.map((v) => {
+      const e = S.umbralEdit[v.key] || { min: '', max: '', err: '', ok: '' };
+      return {
+        key: v.key, nombre: v.name, unidad: v.unit, min: e.min, max: e.max, err: e.err, ok: e.ok,
+        onMin: (ev) => self.editarUmbral(v.key, 'min', ev.target.value),
+        onMax: (ev) => self.editarUmbral(v.key, 'max', ev.target.value),
+        onKey: (ev) => { if (ev.key === 'Enter') self.guardarUmbral(v.key); },
+        guardar: () => self.guardarUmbral(v.key)
+      };
+    });
 
     // ---- centro de avisos: avisos personales de quien está logueado ----
     const avisosList = S.avisos.map((a) => {
@@ -436,9 +473,7 @@ export default class App extends React.Component {
 
     const delSubmit = (e) => {
       if (e && e.preventDefault) e.preventDefault();
-      if (self.state.del.pw !== DEMO_PASSWORD) { self.setState((s) => ({ del: Object.assign({}, s.del, { pw: '', err: true }) })); return; }
-      self.setState({ del: { step: null, pw: '', err: false } });
-      self.borrarSilobolsa(bo.id);
+      self.borrarSilobolsa(bo.id, self.state.del.pw);
     };
     const bagAlerts = alerts.filter((a) => a.bid === bo.id).length;
     const delSummary = bo.name + ' contiene ' + contentOf(bo) + ' y tiene ' + NN + (NN === 1 ? ' nodo' : ' nodos') + (bagAlerts ? ' (' + bagAlerts + (bagAlerts === 1 ? ' alerta activa' : ' alertas activas') + ')' : '') + '.';
@@ -521,6 +556,14 @@ export default class App extends React.Component {
       bagName: bo.name, scopeLabel, nextIn,
       logueado: !!A.user, usuario: A.user || '', avisoApp: S.avisoApp, nuevoNodo: S.nuevoNodo, onNuevoNodo, onNuevoNodoKey,
       avisosList, noLeidos: S.noLeidos, avisosAbiertos: S.avisosAbiertos,
+      umbralesRows, umbralesAbiertos: S.umbralesAbiertos,
+      toggleUmbrales: () => {
+        if (S.umbralesAbiertos) return self.setState({ umbralesAbiertos: false });
+        self.setState({
+          umbralesAbiertos: true,
+          umbralEdit: Object.fromEntries(S.umbrales.map((v) => [v.key, { min: String(v.min).replace('.', ','), max: String(v.max).replace('.', ','), err: '', ok: '' }]))
+        });
+      },
       toggleAvisos: () => { const abrir = !S.avisosAbiertos; self.setState({ avisosAbiertos: abrir }); if (abrir) self.cargarAvisos(); },
       leerTodos: () => self.leerTodosAvisos(),
       loginIsCodigo: A.paso === 'codigo', loginEmail: A.email, loginPw: A.pw, loginCodigo: A.code,
@@ -729,6 +772,9 @@ export default class App extends React.Component {
       </React.Fragment>))}
       </nav>
       <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "auto" }}>
+      <button className="row-btn" onClick={v.toggleUmbrales} aria-expanded={v.umbralesAbiertos} style={{ justifyContent: "center", fontWeight: "600", border: "1px solid rgba(250,246,233,0.42)" }}>
+      Umbrales de alerta
+      </button>
       <button className="row-btn" onClick={v.toggleAvisos} aria-expanded={v.avisosAbiertos} style={{ justifyContent: "center", fontWeight: "600", border: "1px solid rgba(250,246,233,0.42)" }}>
       {v.noLeidos ? "Avisos · " + v.noLeidos + " sin leer" : "Avisos"}
       </button>
@@ -744,6 +790,47 @@ export default class App extends React.Component {
       {v.avisoApp && (<div role="alert" style={{ padding: "10px 12px", borderRadius: "8px", background: "#FDECE8", border: "1px solid #C8321F", color: "#8F2113", fontSize: "13px", fontWeight: "600" }}>
       {v.avisoApp}
       </div>)}
+      {v.umbralesAbiertos && (<section aria-label="Umbrales de alerta" style={{ display: "flex", flexDirection: "column", gap: "14px", padding: "16px 20px", borderRadius: "12px", background: "#FAF6E9", border: "1px solid #DCE5E0" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
+      <h2 style={{ margin: "0", font: "700 20px/1.1 'Inter', sans-serif", letterSpacing: "-0.02em" }}>
+      Umbrales de alerta
+      </h2>
+      <button type="button" className="btn" onClick={v.toggleUmbrales}>
+      Cerrar
+      </button>
+      </div>
+      <p style={{ margin: "0", fontSize: "13px", color: "#4F6459" }}>
+      Fuera de este rango salta una alerta. Los cambios valen para las lecturas que llegan de ahora en adelante.
+      </p>
+      {v.umbralesRows.map((r, $index) => (<React.Fragment key={$index}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "flex-end", padding: "12px", borderRadius: "8px", border: "1px solid #DCE5E0" }}>
+      <p style={{ margin: "0", flex: "1 1 140px", fontWeight: "600" }}>
+      {r.nombre}{r.unidad ? " (" + r.unidad + ")" : ""}
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: "1 1 110px" }}>
+      <label htmlFor={"umb-min-" + r.key} style={{ fontSize: "12px", fontWeight: "600" }}>
+      Mínimo de {r.nombre}
+      </label>
+      <input id={"umb-min-" + r.key} type="text" inputMode="decimal" className="field" value={r.min} onChange={r.onMin} onKeyDown={r.onKey} />
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: "1 1 110px" }}>
+      <label htmlFor={"umb-max-" + r.key} style={{ fontSize: "12px", fontWeight: "600" }}>
+      Máximo de {r.nombre}
+      </label>
+      <input id={"umb-max-" + r.key} type="text" inputMode="decimal" className="field" value={r.max} onChange={r.onMax} onKeyDown={r.onKey} />
+      </div>
+      <button type="button" className="btn primary" onClick={r.guardar}>
+      Guardar
+      </button>
+      {r.err && (<div role="alert" style={{ flex: "1 1 100%", padding: "8px 10px", borderRadius: "8px", background: "#FDECE8", border: "1px solid #C8321F", color: "#8F2113", fontSize: "13px", fontWeight: "600" }}>
+      {r.err}
+      </div>)}
+      {r.ok && (<p role="status" style={{ flex: "1 1 100%", margin: "0", fontSize: "13px", fontWeight: "600", color: "#005A36" }}>
+      {r.ok}
+      </p>)}
+      </div>
+      </React.Fragment>))}
+      </section>)}
       {v.avisosAbiertos && (<section aria-label="Centro de avisos" style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px 20px", borderRadius: "12px", background: "#FAF6E9", border: "1px solid #DCE5E0" }}>
       <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
       <h2 style={{ margin: "0", font: "700 20px/1.1 'Inter', sans-serif", letterSpacing: "-0.02em" }}>

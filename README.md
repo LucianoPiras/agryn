@@ -34,7 +34,7 @@ Content-Type: application/json
 - Repetir el mismo nodo y `ts` no duplica la lectura, así que los reintentos son seguros.
 - Si una lectura se sale del rango, se crea una alerta (Atención o Crítica). No se repite mientras no se reconozca.
 
-**API de la app** (`/api/...`, requiere sesión): `silobolsas` (CRUD), `silobolsas/:id/nodos`, `nodos/:id/lecturas?desde=&hasta=&limite=`, `nodos/:id/ultima`, `alertas?reconocidas=0|1`, `alertas/:id/reconocer` y `umbrales`.
+**API de la app** (`/api/...`, requiere sesión): `silobolsas` (CRUD), `silobolsas/:id/nodos`, `nodos/:id/lecturas?desde=&hasta=&limite=`, `nodos/:id/ultima`, `alertas?reconocidas=0|1`, `alertas/:id/reconocer`, `umbrales` (lectura y `PUT umbrales/:variable`) y `avisos`.
 
 Serie para graficar: `GET /api/nodos/:id/serie?rango=24h|7d|30d` devuelve los puntos promediados por intervalo (96, 84 y 90 puntos, como en la pantalla), con los huecos rellenados.
 
@@ -58,7 +58,7 @@ Variables de entorno (en un archivo `.env` que no se sube al repo, o en el panel
 ```bash
 GMAIL_USER=Agryn.silobolsa@gmail.com
 GMAIL_APP_PASSWORD=...        # contraseña de aplicación de esa cuenta (requiere verificación en dos pasos)
-AGRYN_USUARIOS=[{"email":"...","password":"..."}]
+AGRYN_USUARIOS=[{"email":"...","password":"..."}]   # solo la primera vez: después los usuarios se administran en la base
 ```
 
 ```bash
@@ -97,8 +97,8 @@ brand-originals/   Archivos originales de los logos
 - `avg()` promedia los nodos de una silobolsa que tienen lectura.
 - Las silobolsas, los nodos, el contenido y las alertas se leen y se guardan en la API. Se recargan al entrar y cada minuto.
 - Al dar de alta un nodo hay que indicar su identificador LoRa (el mismo que manda el gateway).
-- Los umbrales están en `server/umbrales.js` y en la constante `VARS` de la pantalla. **Son valores de ejemplo**: hay que definirlos con el equipo técnico según el grano almacenado.
-- `DEMO_PASSWORD` (`12345`) sigue en el navegador para confirmar la eliminación de una silobolsa. **No protege nada de verdad**: la API no la pide.
+- Los umbrales de ejemplo están en `server/umbrales.js`. Se guardan en la base y se cambian desde el panel **Umbrales de alerta** de la app. Los cambios valen para las lecturas que llegan después. **Son valores de ejemplo**: hay que definirlos con el equipo técnico según el grano almacenado.
+- Las contraseñas se guardan cifradas con scrypt (`server/clave.js`). Para borrar una silobolsa hay que escribir la contraseña del propio usuario, y la API la verifica.
 
 ## Identidad de marca
 

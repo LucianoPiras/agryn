@@ -25,11 +25,11 @@ Todo el texto de la interfaz va en español rioplatense (voseo: "Cambialo", "Pro
 - Los gráficos son SVG hechos a mano (sin librerías). Las series se calculan en `val()`.
 - Los datos vienen de la API (`server/`). `val()` lee la serie de `state.datos` y devuelve `null` si el nodo no tiene lecturas; `fmt()` muestra «—» en ese caso. Para probar sin hardware: `tools/simulador.js`.
 - No usar `<form>` con botón de envío para acciones de la app: en el editor de diseño de origen los formularios estaban bloqueados. Usar botones con `onClick` y manejar Enter con `onKeyDown`.
-- `DEMO_PASSWORD` es solo para el prototipo. No es seguridad real.
+- Las contraseñas se verifican en el servidor (`server/clave.js`, scrypt). El navegador nunca las compara.
 
 ## Pendientes pensados
 - Firmware del ESP32 gateway LoRa (la API ya recibe lecturas en `POST /api/gateway/lecturas`).
-- Definir umbrales reales por tipo de grano.
+- Definir umbrales reales por tipo de grano (hoy se editan desde la app).
 - Notificaciones de alerta fuera de la app (push, mail o WhatsApp).
-- Pantalla para editar umbrales y vista de celular con alertas.
+- Vista de celular con alertas (la pantalla ya es responsive, falta pulir la experiencia).
 - Pantalla de presentación para el jurado (equipo y problema que resuelven).

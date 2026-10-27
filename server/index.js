@@ -37,7 +37,9 @@ const transporte = process.env.AGRYN_MAIL === 'json'
 const ruta = process.env.AGRYN_DB || path.join(here, '..', 'data', 'agryn.db');
 const repo = crearRepo(abrirBase(ruta));
 
-const usuarios = cargarUsuarios();
+// Usuarios del entorno: se cargan a la base la primera vez. Después se administran ahí;
+// cambiar AGRYN_USUARIOS no cambia una contraseña que ya está guardada.
+for (const u of cargarUsuarios()) repo.crearUsuario(u.email, u.password);
 
 // Canal de correo: además del aviso en la app, cada usuario recibe un mail por alerta.
 const correo = {
@@ -49,7 +51,7 @@ const correo = {
     text: detalle + '\n\nRevisá la app para ver el nodo y reconocer la alerta.'
   })
 };
-const notificador = crearNotificador({ repo, usuarios, canales: [correo] });
+const notificador = crearNotificador({ repo, canales: [correo] });
 // Revisa cada minuto las alertas de atención que siguen sin reconocerse.
 setInterval(() => notificador.procesar(), 60 * 1000);
 
@@ -57,7 +59,6 @@ const app = crearApp({
   repo,
   transporte,
   remitente: REMITENTE,
-  usuarios,
   gatewayKey: process.env.AGRYN_GATEWAY_KEY || '',
   notificador
 });

@@ -13,7 +13,8 @@ before(async () => {
   const repo = crearRepo(abrirBase(':memory:'));
   // Transporte falso: guarda los correos en memoria en vez de enviarlos.
   const transporte = { sendMail: async (m) => { correos.push(m); } };
-  const app = crearApp({ repo, transporte, remitente: 'Agryn.silobolsa@gmail.com', usuarios: [USUARIO], gatewayKey: CLAVE_GATEWAY });
+  repo.crearUsuario(USUARIO.email, USUARIO.password);
+  const app = crearApp({ repo, transporte, remitente: 'Agryn.silobolsa@gmail.com', gatewayKey: CLAVE_GATEWAY });
   await new Promise((ok) => { server = app.listen(0, '127.0.0.1', ok); });
   base = `http://127.0.0.1:${server.address().port}`;
 
@@ -117,7 +118,7 @@ test('borrar una silobolsa borra sus nodos y lecturas', async () => {
   const lista = await llamar('GET', '/api/silobolsas');
   const silo = lista.data[0];
   const nodoId = silo.nodos[0].id;
-  assert.equal((await llamar('DELETE', `/api/silobolsas/${silo.id}`)).status, 204);
+  assert.equal((await llamar('DELETE', `/api/silobolsas/${silo.id}`, { password: USUARIO.password })).status, 204);
   assert.equal((await llamar('GET', `/api/nodos/${nodoId}/ultima`)).status, 404);
 });
 
@@ -146,4 +147,14 @@ test('la serie promedia por intervalo y rellena los huecos', async () => {
   assert.equal(r.data.valores.ph[0], 6.4, 'los huecos del principio toman el primer valor conocido');
   assert.equal(r.data.valores.temp.every((x) => x == null), true, 'sin lecturas de temperatura, la serie queda vacía');
   assert.equal((await llamar('GET', `/api/nodos/${nodo.data.id}/serie?rango=1y`)).status, 400);
+});
+
+test('borrar una silobolsa pide la contraseña del usuario', async () => {
+  const silo = await llamar('POST', '/api/silobolsas', { nombre: 'Protegida', contenido: 'Maíz' });
+  const sinClave = await llamar('DELETE', `/api/silobolsas/${silo.data.id}`, { password: 'mal' });
+  assert.equal(sinClave.status, 403);
+  const sigue = await llamar('GET', '/api/silobolsas');
+  assert.ok(sigue.data.some((s) => s.id === silo.data.id), 'la silobolsa no se borró');
+  const sinCuerpo = await llamar('DELETE', `/api/silobolsas/${silo.data.id}`);
+  assert.equal(sinCuerpo.status, 403);
 });

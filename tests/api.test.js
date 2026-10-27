@@ -141,9 +141,9 @@ test('la serie promedia por intervalo y rellena los huecos', async () => {
   ]);
   const r = await llamar('GET', `/api/nodos/${nodo.data.id}/serie?rango=24h`);
   assert.equal(r.status, 200);
-  assert.equal(r.data.n, 96);
-  assert.equal(r.data.valores.ph.length, 96);
-  assert.ok(Math.abs(r.data.valores.ph[95] - 6.1) < 1e-9, 'el último intervalo promedia las dos lecturas recientes');
+  assert.equal(r.data.n, 48);
+  assert.equal(r.data.valores.ph.length, 48);
+  assert.ok(Math.abs(r.data.valores.ph[47] - 6.1) < 1e-9, 'el último intervalo promedia las dos lecturas recientes');
   assert.equal(r.data.valores.ph[0], 6.4, 'los huecos del principio toman el primer valor conocido');
   assert.equal(r.data.valores.temp.every((x) => x == null), true, 'sin lecturas de temperatura, la serie queda vacía');
   assert.equal((await llamar('GET', `/api/nodos/${nodo.data.id}/serie?rango=1y`)).status, 400);

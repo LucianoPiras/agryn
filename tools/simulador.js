@@ -21,7 +21,7 @@ const { values: op } = parseArgs({
     url: { type: 'string', default: 'http://localhost:3001' },
     dispositivos: { type: 'string', default: '' },
     horas: { type: 'string', default: '0' },
-    paso: { type: 'string', default: '15' },
+    paso: { type: 'string', default: '30' },
     'en-vivo': { type: 'string' },
     anomalia: { type: 'boolean', default: false }
   }

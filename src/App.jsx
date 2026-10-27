@@ -7,13 +7,15 @@ const VARS = [
   { key: 'co2',  name: 'CO₂',         unit: '%',  dec: 2, min: 0.5, max: 3 }
 ];
 const RANGES = {
-  '24h': { n: 96, step: 15,  label: '24 h',    ticks: ['-24 h', '-18 h', '-12 h', '-6 h', 'Ahora'] },
+  '24h': { n: 48, step: 30,  label: '24 h',    ticks: ['-24 h', '-18 h', '-12 h', '-6 h', 'Ahora'] },
   '7d':  { n: 84, step: 120, label: '7 días',  ticks: ['-7 d', '-6 d', '-5 d', '-4 d', '-3 d', '-2 d', '-1 d', 'Hoy'] },
   '30d': { n: 90, step: 480, label: '30 días', ticks: ['-30 d', '-24 d', '-18 d', '-12 d', '-6 d', 'Hoy'] }
 };
 const C = { ok: '#005A36', okBg: 'rgba(0,90,54,0.10)', warn: '#8A4D00', warnBg: 'rgba(161,92,0,0.12)', crit: '#B02A18', critBg: 'rgba(200,50,31,0.10)', text: '#0F2A1F', muted: '#4F6459' };
 const SELF = 'rgba(250,246,233,0.14)', SELB = 'rgba(250,246,233,0.42)';
-const QUARTER = 15 * 60 * 1000;
+// Los nodos mandan una lectura cada 30 minutos; la pantalla lo muestra como próxima lectura.
+const MEDIA_HORA = 30 * 60 * 1000;
+const N24 = RANGES['24h'].n;
 // Contenidos que ofrece el selector. Cualquier otro texto se guarda como "Otro".
 const CONTENIDOS = ['Soja', 'Maíz', 'Trigo', 'Girasol', 'Sorgo', 'Cebada', 'Forraje', 'Sin definir'];
 // Silobolsa vacía: se muestra mientras no hay ninguna cargada, para que la pantalla no se rompa.
@@ -226,10 +228,10 @@ export default class App extends React.Component {
     if (!r.ok) { this.error(r.error); this.cargarAlertas(); }
   }
 
-  // Lectura de un nodo en el índice i de la serie del rango n (96 = 24 h, 84 = 7 d, 90 = 30 d).
+  // Lectura de un nodo en el índice i de la serie del rango n (N24 = 24 h, 84 = 7 d, 90 = 30 d).
   // Devuelve null si el nodo todavía no tiene lecturas.
   val(b, nd, vi, i, n) {
-    if (i === n - 1 && n !== 96) return this.val(b, nd, vi, 95, 96);
+    if (i === n - 1 && n !== N24) return this.val(b, nd, vi, N24 - 1, N24);
     const rango = n === 84 ? '7d' : (n === 90 ? '30d' : '24h');
     const s = this.state.datos[nd.id] && this.state.datos[nd.id][rango];
     const serie = s && s.valores[VARS[vi].key];
@@ -352,7 +354,7 @@ export default class App extends React.Component {
       const sv = st === 'ok' ? 'ok' : self.sev(curV, v);
       const idx = Math.min(S.cursor == null ? n - 1 : S.cursor, n - 1);
       const cx = X(idx), cv = vals[idx], cst = self.status(cv, v);
-      const nodeVals = bo.nodes.map((nd) => self.val(bo, nd, vi, 95, 96));
+      const nodeVals = bo.nodes.map((nd) => self.val(bo, nd, vi, N24 - 1, N24));
       const outNodes = [];
       nodeVals.forEach((x, k) => { if (self.status(x, v) !== 'ok') outNodes.push(k); });
       const anyCrit = outNodes.some((k) => self.sev(nodeVals[k], v) === 'crit');
@@ -403,7 +405,7 @@ export default class App extends React.Component {
           };
         }),
         compare: bags.map((b) => {
-          const x = self.avg(b, vi, 95, 96);
+          const x = self.avg(b, vi, N24 - 1, N24);
           const mine = alerts.filter((a) => a.bid === b.id && a.iv === vi);
           const worst = mine.some((a) => a.sev === 'crit') ? 'crit' : (mine.length ? 'warn' : 'ok');
           return {
@@ -432,11 +434,11 @@ export default class App extends React.Component {
     bo.nodes.forEach((nd) => {
       const rows = []; let outC = 0, crit = false;
       VARS.forEach((v, vi) => {
-        const x = self.val(bo, nd, vi, 95, 96), st = self.status(x, v), sv = st === 'ok' ? 'ok' : self.sev(x, v);
+        const x = self.val(bo, nd, vi, N24 - 1, N24), st = self.status(x, v), sv = st === 'ok' ? 'ok' : self.sev(x, v);
         if (st !== 'ok') { outC++; if (sv === 'crit') crit = true; }
         rows.push({ label: v.name, value: fmt(x, v.dec) + unitTxt(v), color: st === 'ok' ? C.text : col(sv), dot: col(sv) });
       });
-      const hay = VARS.some((v, vi) => self.val(bo, nd, vi, 95, 96) != null);
+      const hay = VARS.some((v, vi) => self.val(bo, nd, vi, N24 - 1, N24) != null);
       const sv = outC === 0 ? 'ok' : (crit ? 'crit' : 'warn'), selected = !!(nsel && nsel.id === nd.id);
       const ckey = 'node-' + bo.id + '-' + nd.id;
       const asking = confirmLive === ckey;
@@ -508,7 +510,7 @@ export default class App extends React.Component {
       };
     });
     const varNav = VARS.map((v, vi) => {
-      const x = pt(vi, 95, 96), st = self.status(x, v), sv = st === 'ok' ? 'ok' : self.sev(x, v);
+      const x = pt(vi, N24 - 1, N24), st = self.status(x, v), sv = st === 'ok' ? 'ok' : self.sev(x, v);
       return {
         name: v.name, value: fmt(x, v.dec) + unitTxt(v),
         valColor: sv === 'ok' ? 'rgba(250,246,233,0.85)' : (sv === 'crit' ? '#FFB4A6' : '#FFD98A'),
@@ -522,7 +524,7 @@ export default class App extends React.Component {
       bg: S.range === k ? C.ok : 'transparent', fg: S.range === k ? '#FAF6E9' : C.text,
       pick: () => self.setState({ range: k, cursor: null })
     }));
-    const nextIn = 15 - Math.floor((Date.now() % QUARTER) / 60000);
+    const nextIn = 30 - Math.floor((Date.now() % MEDIA_HORA) / 60000);
 
     // ---- inicio de sesión: el servidor valida y envía el código por correo ----
     const A = S.auth;
@@ -911,7 +913,7 @@ export default class App extends React.Component {
       <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "#4F6459" }}>
       <span className="pulse" style={{ width: "8px", height: "8px", borderRadius: "999px", background: "#005A36" }} aria-hidden="true">
       </span>
-      Lecturas cada 15 min · próxima en {v.nextIn} min
+      Lecturas cada 30 min · próxima en {v.nextIn} min
       </span>
       <div role="group" aria-label="Rango de tiempo" style={{ display: "inline-flex", padding: "4px", gap: "4px", background: "#FAF6E9", border: "1px solid #DCE5E0", borderRadius: "10px" }}>
       {v.rangeList.map((r, $index) => (<React.Fragment key={$index}>
@@ -1367,7 +1369,7 @@ export default class App extends React.Component {
       </>)}
       <section aria-label="Origen de los datos" style={{ padding: "16px 20px", borderRadius: "12px", border: "1px dashed #B9CCC2", marginTop: "auto" }}>
       <p style={{ margin: "0", fontSize: "13px", color: "#4F6459" }}>
-      Los valores llegan desde los nodos cada 15 minutos. Las alertas saltan al instante y quedan hasta que las reconozcas.
+      Los valores llegan desde los nodos cada 30 minutos. Las alertas saltan al instante y quedan hasta que las reconozcas.
       </p>
       </section>
       </main>

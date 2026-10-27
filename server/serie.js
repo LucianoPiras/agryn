@@ -4,7 +4,7 @@ import { VARIABLES } from './umbrales.js';
 
 const MIN = 60 * 1000;
 export const RANGOS = {
-  '24h': { n: 96, paso: 15 * MIN },
+  '24h': { n: 48, paso: 30 * MIN },
   '7d': { n: 84, paso: 120 * MIN },
   '30d': { n: 90, paso: 480 * MIN }
 };

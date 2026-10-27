@@ -36,7 +36,7 @@ Content-Type: application/json
 
 **API de la app** (`/api/...`, requiere sesión): `silobolsas` (CRUD), `silobolsas/:id/nodos`, `nodos/:id/lecturas?desde=&hasta=&limite=`, `nodos/:id/ultima`, `alertas?reconocidas=0|1`, `alertas/:id/reconocer`, `umbrales` (lectura y `PUT umbrales/:variable`) y `avisos`.
 
-Serie para graficar: `GET /api/nodos/:id/serie?rango=24h|7d|30d` devuelve los puntos promediados por intervalo (96, 84 y 90 puntos, como en la pantalla), con los huecos rellenados.
+Serie para graficar: `GET /api/nodos/:id/serie?rango=24h|7d|30d` devuelve los puntos promediados por intervalo (48, 84 y 90 puntos, como en la pantalla), con los huecos rellenados.
 
 **Simulador de nodos** (sin hardware): manda lecturas al gateway como lo haría el ESP32. Los nodos tienen que existir en la app antes.
 
@@ -91,7 +91,7 @@ Para probar sin enviar correos: `AGRYN_MAIL=json npm run server` no manda nada y
 - **Silobolsas**: se pueden agregar (nombre, cantidad de nodos y contenido) y eliminar.
 - **Contenido** de cada silobolsa (soja, maíz, trigo, forraje, otro…), editable.
 - **Alertas al instante** por nodo y por variable, con dos niveles (Atención y Crítica) y opción de reconocerlas.
-- **Lecturas cada 15 minutos**: el valor actual se actualiza una vez cada 15 min; las alertas saltan apenas hay una lectura fuera de rango.
+- **Lecturas cada 30 minutos**: el valor actual se actualiza con cada lectura, una vez cada 30 min; las alertas saltan apenas hay una lectura fuera de rango.
 - **Eliminar silobolsa** con aviso de lo que se va a perder y contraseña.
 - **Datos reales**: los valores, el historial y las alertas vienen del servidor. Las alertas quedan hasta que las reconozcas.
 

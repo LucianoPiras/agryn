@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AGRYN Monitoreo: resumen del trabajo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@600;700;800&family=Montserrat:wght@400;500;600&display=swap" />
+<style>
+  :root {
+    --esmeralda: #005A36;
+    --marfil: #FAF6E9;
+    --tinta: #1E2B25;
+    --suave: #DCE5E0;
+    --panel: #F1F6F3;
+    --alerta: #8F2113;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --marfil: #15201B;
+      --tinta: #EEF3EF;
+      --suave: #2A3A33;
+      --panel: #1B2A23;
+    }
+  }
+  :root[data-theme="dark"] {
+    --marfil: #15201B;
+    --tinta: #EEF3EF;
+    --suave: #2A3A33;
+    --panel: #1B2A23;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--marfil);
+    color: var(--tinta);
+    font: 400 16px/1.6 'Montserrat', system-ui, sans-serif;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 64px; }
+  header.portada { background: var(--esmeralda); color: var(--marfil); border-radius: 16px; padding: 40px 28px; }
+  h1, h2, h3 { font-family: 'Inter', system-ui, sans-serif; letter-spacing: -0.02em; }
+  h1 { margin: 0 0 8px; font-size: 34px; font-weight: 800; }
+  h2 { margin: 40px 0 12px; font-size: 24px; font-weight: 700; color: var(--esmeralda); }
+  h3 { margin: 20px 0 6px; font-size: 17px; font-weight: 700; }
+  p.lead { margin: 0; font-size: 17px; opacity: 0.95; }
+  section { border-top: 1px solid var(--suave); padding-top: 4px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .tarjeta { background: var(--panel); border: 1px solid var(--suave); border-radius: 12px; padding: 16px 18px; }
+  .tarjeta p { margin: 4px 0 0; font-size: 15px; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  pre { background: var(--panel); border: 1px solid var(--suave); border-radius: 10px; padding: 14px; overflow-x: auto; white-space: pre; }
+  .flujo { font-family: 'Inter', sans-serif; font-weight: 600; color: var(--esmeralda); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--suave); vertical-align: top; }
+  th { font-family: 'Inter', sans-serif; font-size: 14px; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--panel); border: 1px solid var(--suave); }
+  .alerta { color: var(--alerta); font-weight: 600; }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  footer { margin-top: 48px; font-size: 14px; opacity: 0.8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="portada">
+  <p class="lead">Resumen del trabajo</p>
+  <h1>AGRYN Monitoreo</h1>
+  <p class="lead">Tu cosecha, bajo control. Monitoreo de silobolsas con alertas, diagnóstico orientativo y notificaciones al celular.</p>
+</header>
+
+<section>
+  <h2>Qué hace la app</h2>
+  <div class="grid">
+    <div class="tarjeta"><h3>Estado en vivo</h3><p>Muestra pH, temperatura, humedad y CO₂ de cada nodo de la silobolsa, con la hora de la última lectura.</p></div>
+    <div class="tarjeta"><h3>Historial</h3><p>Gráficos de 24 horas, 7 y 30 días. Las series se dibujan a mano, sin librerías.</p></div>
+    <div class="tarjeta"><h3>Alertas</h3><p>Llegan en tiempo real desde la central. La app no detecta nada por su cuenta: solo muestra lo que la central encuentra.</p></div>
+    <div class="tarjeta"><h3>Diagnóstico</h3><p>Cuando llega una alarma, explica qué factores subieron o bajaron en las 2 horas previas y señala una posible causa.</p></div>
+    <div class="tarjeta"><h3>Avisos</h3><p>Centro de avisos por usuario, con marcado de leído. Cada persona puede silenciar las silobolsas que no le interesan.</p></div>
+    <div class="tarjeta"><h3>Umbrales</h3><p>Rangos de cada variable editables desde la app, con validación en el servidor.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Cómo llegan los datos</h2>
+  <pre>Silobolsa  --LoRa-->  Central local  --internet-->  Servidor AGRYN  --tiempo real-->  App
+                         (ESP32)                        (Node + SQLite)              (celular o PC)
+
+Lecturas:   cada 30 s    POST /api/central/lecturas
+Anomalías:  en hasta 3 s POST /api/central/anomalias
+Pantalla:   en vivo      GET  /api/eventos (SSE, con ticket de un solo uso)</pre>
+  <p>La central procesa las mediciones y manda solo las anomalías. Si un nodo deja de mandar datos durante 3 minutos, aparece una alerta de «Sin datos de la central».</p>
+</section>
+
+<section>
+  <h2>Diagnóstico de la alarma</h2>
+  <p>La app compara el primer tercio de las lecturas de las últimas 2 horas con el último tercio, variable por variable. Según lo que cambió, arma un texto orientativo:</p>
+  <table>
+    <tr><th>Lo que se ve</th><th>Lo que sugiere</th></tr>
+    <tr><td>Temperatura y CO₂ suben juntos</td><td>Posible fermentación</td></tr>
+    <tr><td>CO₂ baja y humedad sube</td><td>Posible rotura o ingreso de aire</td></tr>
+    <tr><td>Cambios que no encajan con ninguno</td><td>«No alcanza para un patrón claro», sin inventar una causa</td></tr>
+  </table>
+  <p><span class="pill">Orientativo</span> Las reglas hay que validarlas con el equipo técnico antes de tomarlas como definitivas.</p>
+</section>
+
+<section>
+  <h2>Notificaciones</h2>
+  <ul>
+    <li><strong>Dentro de la app:</strong> cartel rojo para las críticas y contador de avisos.</li>
+    <li><strong>Notificación del sistema:</strong> mientras la app está abierta en el navegador.</li>
+    <li><strong>Push al celular:</strong> llega aunque la app esté cerrada. Cada dispositivo se suscribe desde el botón «Activar notificaciones». Las suscripciones caducadas se borran solas.</li>
+    <li><strong>Correo:</strong> un mail por alerta a cada usuario.</li>
+    <li><strong>Pendiente:</strong> WhatsApp y Telegram, que necesitan credenciales y acceso a sus servicios.</li>
+  </ul>
+  <p>Las críticas avisan al instante. Las de atención, si siguen sin reconocerse a los 30 minutos.</p>
+</section>
+
+<section>
+  <h2>Instalable en el celular</h2>
+  <p>La app se puede agregar a la pantalla de inicio como una aplicación: tiene ícono propio, se abre sin la barra del navegador y muestra la última copia de la pantalla aunque no haya conexión. Los datos nunca se guardan en el celular.</p>
+  <ul>
+    <li><strong>Android:</strong> menú ⋮ → «Instalar aplicación».</li>
+    <li><strong>iPhone:</strong> Compartir → «Agregar a pantalla de inicio», y abrirla desde ese ícono.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Seguridad</h2>
+  <ul>
+    <li>Ingreso con correo y contraseña, más un código de un solo uso enviado por correo.</li>
+    <li>Las contraseñas se guardan cifradas con scrypt. El navegador nunca las compara.</li>
+    <li>La central y el gateway LoRa envían datos con sus propias claves, distintas entre sí.</li>
+    <li>Borrar una silobolsa pide la contraseña del usuario, verificada en el servidor.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Cómo se prueba</h2>
+  <p>Hay <strong>48 pruebas automáticas</strong> que cubren la API, los avisos, el diagnóstico, el push, la conexión en tiempo real y los umbrales. Se corren con <code>npm test</code>.</p>
+  <p>Para mostrar la app sin hardware:</p>
+  <pre>npm run simular-rotura        # carga 2 horas con patrón de rotura y manda la alarma
+node tools/simulador.js ...   # nodos con lecturas normales</pre>
+</section>
+
+<section>
+  <h2>Publicación y pendientes</h2>
+  <table>
+    <tr><th>Tema</th><th>Estado</th></tr>
+    <tr><td>Código en GitHub</td><td>Hecho (rama <code>main</code>)</td></tr>
+    <tr><td>Despliegue en Render</td><td>Preparado (<code>render.yaml</code>), pendiente de cuenta y tarjeta</td></tr>
+    <tr><td>Correo real de Gmail</td><td>Pendiente de verificar desde un servidor con salida a Gmail</td></tr>
+    <tr><td>Push al celular de punta a punta</td><td>Pendiente de probar con un celular y HTTPS</td></tr>
+    <tr><td>APK para Android</td><td>Pendiente de decidir: Capacitor con Firebase para el push</td></tr>
+    <tr><td>WhatsApp y Telegram</td><td>Pendiente de credenciales</td></tr>
+    <tr><td>Firmware del ESP32 y sensores</td><td>Pendiente. Se define cuando estén los sensores</td></tr>
+    <tr><td>Umbrales reales por grano</td><td>Pendiente de validar con el equipo técnico</td></tr>
+  </table>
+</section>
+
+<footer>
+  <p>Documento generado a partir del repositorio <code>LucianoPiras/agryn</code>, rama <code>main</code>.</p>
+</footer>
+
+</div>
+</body>
+</html>

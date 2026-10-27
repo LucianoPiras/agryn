@@ -15,6 +15,29 @@ npm run build      # versión para publicar, en /dist
 npm run preview    # probar la versión compilada
 ```
 
+## Backend y gateway LoRa
+
+El servidor guarda silobolsas, nodos, lecturas y alertas en SQLite (`data/agryn.db`, o `AGRYN_DB`). Las reglas de rango viven en `server/umbrales.js`.
+
+**Gateway LoRa (ESP32).** Recibe las lecturas de los nodos y las envía al servidor:
+
+```http
+POST /api/gateway/lecturas
+X-Api-Key: <AGRYN_GATEWAY_KEY>
+Content-Type: application/json
+
+[{"device_id": "ESP32-A1", "ph": 6.5, "temp": 18.2, "hum": 13.1, "co2": 1.2, "ts": 1761550000000}]
+```
+
+- Acepta una lectura o un lote de hasta 500. `ts` en milisegundos; si falta, usa la hora del servidor.
+- `device_id` tiene que estar cargado como nodo de una silobolsa.
+- Repetir el mismo nodo y `ts` no duplica la lectura, así que los reintentos son seguros.
+- Si una lectura se sale del rango, se crea una alerta (Atención o Crítica). No se repite mientras no se reconozca.
+
+**API de la app** (`/api/...`, requiere sesión): `silobolsas` (CRUD), `silobolsas/:id/nodos`, `nodos/:id/lecturas?desde=&hasta=&limite=`, `nodos/:id/ultima`, `alertas?reconocidas=0|1`, `alertas/:id/reconocer` y `umbrales`.
+
+Pruebas: `npm test`.
+
 ## Correo y servidor
 
 El ingreso manda el código de confirmación por correo desde **Agryn.silobolsa@gmail.com** usando Gmail SMTP. Por eso hace falta un servidor (`server/index.js`) que corra junto a la app.

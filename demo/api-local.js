@@ -1,0 +1,287 @@
+// API de demostración que corre en el navegador: responde las mismas rutas que el servidor,
+// pero guarda todo en localStorage. Sirve para abrir AGRYN Monitoreo como un solo archivo HTML.
+//
+// Usa los mismos módulos que el servidor (series, umbrales, diagnóstico), así que la pantalla
+// muestra lo mismo que la app conectada. Los datos son simulados.
+import { VARIABLES, evaluar } from '../server/umbrales.js';
+import { serie, RANGOS } from '../server/serie.js';
+import { diagnosticar, VENTANA_DIAGNOSTICO } from '../server/diagnostico.js';
+import { PATRONES, etiquetaVariable } from '../server/patrones.js';
+
+const CLAVE_STORE = 'agryn-demo-v1';
+const SESION_LOCAL = 'agryn-sesion-v1';
+const MINUTO = 60 * 1000;
+const HORA = 60 * MINUTO;
+const CONTRASENA = '12345';
+const USUARIO = 'demo@agryn.test';
+const DIA = 24 * HORA;
+
+// Umbrales por defecto, los mismos que la base del servidor.
+const UMBRALES_INICIALES = VARIABLES.map((v) => ({ key: v.key, nombre: v.nombre, unidad: v.unidad, min: v.min, max: v.max }));
+
+// ---------- almacenamiento ----------
+let estado = cargar() || semilla();
+function cargar() {
+  try {
+    const raw = window.localStorage.getItem(CLAVE_STORE);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+function guardar() {
+  try { window.localStorage.setItem(CLAVE_STORE, JSON.stringify(estado)); } catch (e) { /* sin almacenamiento: queda en memoria */ }
+}
+const nuevoId = (lista) => lista.reduce((m, x) => Math.max(m, x.id), 0) + 1;
+
+// ---------- datos simulados ----------
+// Una lectura cada 30 minutos con variaciones suaves dentro del rango habitual.
+function valorSimulado(semilla, variable, ts) {
+  const v = VARIABLES.find((x) => x.key === variable);
+  const medio = (v.min + v.max) / 2, mitad = (v.max - v.min) / 2;
+  const fase = semilla * 2.7 + variable.length;
+  const onda = Math.sin((ts / (6 * HORA)) * Math.PI * 2 + fase) * 0.45;
+  const ruido = Math.sin(ts / (37 * MINUTO) + fase * 3) * 0.05;
+  const x = medio + mitad * (onda + ruido);
+  return Number(x.toFixed(variable === 'ph' || variable === 'co2' ? 2 : 1));
+}
+function lecturaSimulada(semilla, ts) {
+  return { ts, ph: valorSimulado(semilla, 'ph', ts), temp: valorSimulado(semilla, 'temp', ts), hum: valorSimulado(semilla, 'hum', ts), co2: valorSimulado(semilla, 'co2', ts) };
+}
+
+function semilla() {
+  const ahora = Date.now();
+  const silos = [
+    { id: 1, nombre: 'Silobolsa 01', contenido: 'Soja', nodos: [1, 2, 3, 4].map((n) => ({ id: n, nombre: 'Nodo ' + n, device_id: 'ESP32-A' + n })) },
+    { id: 2, nombre: 'Silobolsa 02', contenido: 'Maíz', nodos: [5, 6, 7].map((n) => ({ id: n, nombre: 'Nodo ' + (n - 4), device_id: 'ESP32-B' + (n - 4) })) }
+  ];
+  const lecturas = {};
+  for (const s of silos) for (const n of s.nodos) {
+    const lista = [];
+    for (let ts = ahora - 15 * DIA; ts <= ahora; ts += 30 * MINUTO) lista.push(lecturaSimulada(n.id, ts));
+    lecturas[n.id] = lista;
+  }
+  // Escenario de la demo: una rotura en el Nodo 1 de la Silobolsa 02 (CO₂ baja, humedad sube).
+  const rotura = [];
+  for (let i = 0; i < 25; i++) {
+    const ts = ahora - (24 - i) * 5 * MINUTO;
+    rotura.push({ ts, ph: 6.5, temp: 18.2, hum: Number((12.6 + (1.6 * i) / 24).toFixed(1)), co2: Number((2.0 - (0.7 * i) / 24).toFixed(2)) });
+  }
+  lecturas[5] = lecturas[5].filter((l) => l.ts < ahora - 2 * HORA).concat(rotura);
+  const alertas = [{ id: 1, nodo_id: 5, variable: 'rotura', valor: 1.3, nivel: 'crit', ts: ahora, reconocida: 0, creada: ahora, notificada: 1, diagnostico: diagnosticar(ventanaEn(lecturas[5], ahora)) }];
+  const avisos = [{ id: 1, usuario: USUARIO, alerta_id: 1, creada: ahora, leido: 0 }];
+  return { silos, lecturas, alertas, avisos, umbrales: UMBRALES_INICIALES, silenciadas: [], nextId: 100 };
+}
+
+// Las lecturas de las 2 horas previas a la alarma, igual que el servidor.
+function ventanaEn(lista, ts) {
+  return (lista || []).filter((l) => l.ts >= ts - VENTANA_DIAGNOSTICO && l.ts <= ts);
+}
+function diagnosticarNodo(nodoId, ts) {
+  return diagnosticar(ventanaEn(estado.lecturas[nodoId], ts));
+}
+function lecturas(nodoId) { return estado.lecturas[nodoId] || []; }
+
+// ---------- lógica de la app ----------
+function nodoDe(id) {
+  for (const s of estado.silos) { const n = s.nodos.find((x) => x.id === id); if (n) return { nodo: n, silo: s }; }
+  return null;
+}
+function umbralesVigentes() { return estado.umbrales; }
+
+// Agrega una lectura, igual que el servidor: crea alertas por umbral y avisos para la demo.
+function ingresarLectura(nodoId, ts, valores) {
+  const lista = estado.lecturas[nodoId] || (estado.lecturas[nodoId] = []);
+  if (lista.some((l) => l.ts === ts)) return;
+  lista.push({ ts, ...valores });
+  lista.sort((a, b) => a.ts - b.ts);
+  const reglas = umbralesVigentes();
+  for (const a of evaluar(valores, reglas)) {
+    if (estado.alertas.some((x) => x.nodo_id === nodoId && x.variable === a.variable && !x.reconocida)) continue;
+    const alerta = { id: nuevoId(estado.alertas), nodo_id: nodoId, variable: a.variable, valor: a.valor, nivel: a.nivel, ts, reconocida: 0, creada: Date.now(), notificada: 1, diagnostico: diagnosticarNodo(nodoId, ts) };
+    estado.alertas.push(alerta);
+    if (a.nivel === 'crit') estado.avisos.push({ id: nuevoId(estado.avisos), usuario: USUARIO, alerta_id: alerta.id, creada: Date.now(), leido: 0 });
+  }
+}
+
+// Cada 30 segundos entra una lectura nueva en cada nodo: la pantalla se mueve sola.
+function latir() {
+  const ts = Math.floor(Date.now() / (30 * 1000)) * 30 * 1000;
+  for (const s of estado.silos) for (const n of s.nodos) {
+    ingresarLectura(n.id, ts, lecturaSimulada(n.id, ts));
+  }
+  guardar();
+}
+
+// ---------- respuestas ----------
+const json = (data, status = 200) => new Response(status === 204 ? null : JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+const error = (status, mensaje) => json({ error: mensaje }, status);
+
+function silobolsasConNodos() {
+  return estado.silos.map((s) => ({
+    id: s.id,
+    nombre: s.nombre,
+    contenido: s.contenido,
+    creada: s.creada || 0,
+    nodos: s.nodos.map((n) => {
+      const l = lecturas(n.id);
+      return { id: n.id, silobolsa_id: s.id, nombre: n.nombre, device_id: n.device_id, ultima_ts: l.length ? l[l.length - 1].ts : null };
+    })
+  }));
+}
+
+function alertasVista(reconocidas) {
+  return estado.alertas.filter((a) => !!a.reconocida === reconocidas).map((a) => {
+    const info = nodoDe(a.nodo_id);
+    return { ...a, nodo: info ? info.nodo.nombre : '', silobolsa: info ? info.silo.nombre : '', silobolsa_id: info ? info.silo.id : null, etiqueta: etiquetaVariable(a.variable), descripcion: a.diagnostico || (PATRONES[a.variable] ? PATRONES[a.variable].descripcion : null) };
+  }).sort((a, b) => b.ts - a.ts);
+}
+
+function avisosVista() {
+  const lista = estado.avisos.map((av) => {
+    const a = estado.alertas.find((x) => x.id === av.alerta_id);
+    const info = a && nodoDe(a.nodo_id);
+    return {
+      id: av.id, leido: av.leido, creada: av.creada, alerta_id: av.alerta_id, variable: a ? a.variable : '', valor: a ? a.valor : 0, nivel: a ? a.nivel : 'warn', ts: a ? a.ts : av.creada,
+      nodo_id: a ? a.nodo_id : null, nodo: info ? info.nodo.nombre : '', silobolsa_id: info ? info.silo.id : null, silobolsa: info ? info.silo.nombre : '',
+      etiqueta: a ? etiquetaVariable(a.variable) : '', descripcion: a ? (a.diagnostico || null) : null
+    };
+  }).sort((x, y) => y.creada - x.creada);
+  return {
+    avisos: lista.slice(0, 100),
+    no_leidos: estado.avisos.filter((x) => !x.leido).length,
+    preferencias: estado.silos.map((s) => ({ silobolsa_id: s.id, nombre: s.nombre, recibe: !estado.silenciadas.includes(s.id) }))
+  };
+}
+
+const idDe = (x) => { const n = Number(x); return Number.isInteger(n) && n > 0 ? n : null; };
+
+async function resolver(ruta, metodo, cuerpo, url) {
+  const p = ruta.replace(/\/$/, '');
+  let m;
+  if (p === '/api/sesion') return json({ email: USUARIO });
+  if (p === '/api/logout') return json({ ok: true });
+  if (p === '/api/login' || p === '/api/codigo/reenviar') return json({ ok: true, destino: USUARIO });
+  if (p === '/api/verify') return json({ token: 'demo', email: USUARIO });
+  if (p === '/api/eventos/ticket') return json({ ticket: 'demo' });
+  if (p === '/api/push/clave' || p === '/api/push/suscribir') return error(503, 'Las notificaciones push no están disponibles en la demostración.');
+
+  if (p === '/api/umbrales' && metodo === 'GET') return json(estado.umbrales);
+  if ((m = p.match(/^\/api\/umbrales\/(\w+)$/)) && metodo === 'PUT') {
+    const u = estado.umbrales.find((x) => x.key === m[1]);
+    if (!u) return error(404, 'Variable no encontrada.');
+    const min = cuerpo?.min, max = cuerpo?.max;
+    if (typeof min !== 'number' || typeof max !== 'number' || !Number.isFinite(min) || !Number.isFinite(max)) return error(400, 'Mínimo y máximo tienen que ser números.');
+    if (min >= max) return error(400, 'El mínimo tiene que ser menor que el máximo.');
+    u.min = min; u.max = max; guardar();
+    return json(estado.umbrales);
+  }
+
+  if (p === '/api/silobolsas' && metodo === 'GET') return json(silobolsasConNodos());
+  if (p === '/api/silobolsas' && metodo === 'POST') {
+    const nombre = String(cuerpo?.nombre || '').trim(), contenido = String(cuerpo?.contenido || 'Sin definir').trim();
+    if (!nombre || nombre.length > 40 || !contenido) return error(400, 'Nombre (hasta 40 caracteres) y contenido son obligatorios.');
+    const s = { id: nuevoId(estado.silos), nombre, contenido, creada: Date.now(), nodos: [] };
+    estado.silos.push(s); guardar();
+    return json({ ...s, nodos: [] }, 201);
+  }
+  if ((m = p.match(/^\/api\/silobolsas\/(\d+)$/))) {
+    const id = idDe(m[1]);
+    const s = estado.silos.find((x) => x.id === id);
+    if (!s) return error(404, 'Silobolsa no encontrada.');
+    if (metodo === 'PATCH') {
+      const nombre = String(cuerpo?.nombre ?? s.nombre).trim(), contenido = String(cuerpo?.contenido ?? s.contenido).trim();
+      if (!nombre || nombre.length > 40 || !contenido) return error(400, 'Nombre (hasta 40 caracteres) y contenido son obligatorios.');
+      s.nombre = nombre; s.contenido = contenido; guardar();
+      return json({ ...s, nodos: s.nodos });
+    }
+    if (metodo === 'DELETE') {
+      if (String(cuerpo?.password || '') !== CONTRASENA) return error(403, 'Contraseña incorrecta. No se eliminó la silobolsa; probá de nuevo.');
+      const ids = s.nodos.map((n) => n.id);
+      estado.alertas = estado.alertas.filter((a) => !ids.includes(a.nodo_id));
+      for (const id2 of ids) delete estado.lecturas[id2];
+      estado.silos = estado.silos.filter((x) => x.id !== id);
+      guardar();
+      return json(null, 204);
+    }
+  }
+  if ((m = p.match(/^\/api\/silobolsas\/(\d+)\/nodos$/)) && metodo === 'POST') {
+    const id = idDe(m[1]);
+    const s = estado.silos.find((x) => x.id === id);
+    if (!s) return error(404, 'Silobolsa no encontrada.');
+    const nombre = String(cuerpo?.nombre || '').trim(), device = String(cuerpo?.device_id || '').trim();
+    if (!nombre || nombre.length > 40 || !device || device.length > 64) return error(400, 'Nombre e identificador del nodo son obligatorios.');
+    if (estado.silos.some((x) => x.nodos.some((n) => n.device_id === device))) return error(409, 'Ya hay un nodo con ese identificador.');
+    const nodo = { id: nuevoId(estado.silos.flatMap((x) => x.nodos)), nombre, device_id: device };
+    s.nodos.push(nodo); guardar();
+    return json({ ...nodo, silobolsa_id: s.id }, 201);
+  }
+  if ((m = p.match(/^\/api\/nodos\/(\d+)$/)) && metodo === 'DELETE') {
+    const id = idDe(m[1]);
+    const info = nodoDe(id);
+    if (!info) return error(404, 'Nodo no encontrado.');
+    info.silo.nodos = info.silo.nodos.filter((n) => n.id !== id);
+    delete estado.lecturas[id];
+    estado.alertas = estado.alertas.filter((a) => a.nodo_id !== id);
+    guardar();
+    return json(null, 204);
+  }
+  if ((m = p.match(/^\/api\/nodos\/(\d+)\/(serie|ultima|lecturas)$/))) {
+    const id = idDe(m[1]);
+    if (!nodoDe(id)) return error(404, 'Nodo no encontrado.');
+    const ahora = Date.now();
+    if (m[2] === 'ultima') { const l = lecturas(id); return json(l.length ? l[l.length - 1] : null); }
+    if (m[2] === 'lecturas') return json(lecturas(id).slice(-500).reverse());
+    const rango = new URL(url, 'http://demo').searchParams.get('rango') || '24h';
+    if (!RANGOS[rango]) return error(400, 'Rango inválido. Usá 24h, 7d o 30d.');
+    const desde = ahora - RANGOS[rango].n * RANGOS[rango].paso;
+    return json(serie(lecturas(id).filter((l) => l.ts >= desde), rango, ahora));
+  }
+
+  if (p === '/api/alertas' && metodo === 'GET') return json(alertasVista(new URL(url, 'http://demo').searchParams.get('reconocidas') === '1'));
+  if ((m = p.match(/^\/api\/alertas\/(\d+)\/reconocer$/)) && metodo === 'POST') {
+    const a = estado.alertas.find((x) => x.id === Number(m[1]));
+    if (!a) return error(404, 'Alerta no encontrada.');
+    a.reconocida = 1; guardar();
+    return json({ ok: true });
+  }
+
+  if (p === '/api/avisos' && metodo === 'GET') return json(avisosVista());
+  if (p === '/api/avisos/leer-todos') { estado.avisos.forEach((x) => { x.leido = 1; }); guardar(); return json({ ok: true }); }
+  if ((m = p.match(/^\/api\/avisos\/(\d+)\/leer$/)) && metodo === 'POST') {
+    const av = estado.avisos.find((x) => x.id === Number(m[1]));
+    if (!av) return error(404, 'Aviso no encontrado.');
+    av.leido = 1; guardar();
+    return json({ ok: true });
+  }
+  if ((m = p.match(/^\/api\/avisos\/preferencias\/(\d+)$/)) && metodo === 'PUT') {
+    const id = idDe(m[1]);
+    if (!estado.silos.some((s) => s.id === id)) return error(404, 'Silobolsa no encontrada.');
+    if (typeof cuerpo?.recibe !== 'boolean') return error(400, 'Indicá si querés recibir los avisos (true o false).');
+    estado.silenciadas = cuerpo.recibe ? estado.silenciadas.filter((x) => x !== id) : [...new Set([...estado.silenciadas, id])];
+    guardar();
+    return json({ preferencias: avisosVista().preferencias });
+  }
+  return error(404, 'Ruta no encontrada en la demostración.');
+}
+
+// Reemplaza fetch para las rutas /api/ y el canal de eventos en vivo, que en la demo se simula con latidos.
+export function instalarApiDemo() {
+  // La demo arranca con sesión iniciada: no hace falta correo ni código.
+  try { if (!window.localStorage.getItem(SESION_LOCAL)) window.localStorage.setItem(SESION_LOCAL, 'demo'); } catch (e) { /* sin almacenamiento */ }
+  const fetchReal = window.fetch.bind(window);
+  window.fetch = async (entrada, opciones = {}) => {
+    const url = typeof entrada === 'string' ? entrada : entrada.url;
+    if (!url.startsWith('/api/')) return fetchReal(entrada, opciones);
+    const metodo = (opciones.method || 'GET').toUpperCase();
+    let cuerpo;
+    try { cuerpo = opciones.body ? JSON.parse(opciones.body) : undefined; } catch (e) { cuerpo = undefined; }
+    await new Promise((ok) => setTimeout(ok, 40));
+    return resolver(url.split('?')[0], metodo, cuerpo, url);
+  };
+  window.EventSource = class {
+    constructor() { this.listeners = {}; }
+    addEventListener(nombre, fn) { (this.listeners[nombre] = this.listeners[nombre] || []).push(fn); }
+    close() {}
+  };
+  latir();
+  setInterval(latir, 30 * 1000);
+}

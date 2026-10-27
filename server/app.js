@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { VARIABLES, evaluar } from './umbrales.js';
 import { RANGOS, serie } from './serie.js';
+import { VENTANA, PATRONES, detectarPatrones, etiquetaVariable } from './patrones.js';
+
+const descripcionDe = (variable) => (PATRONES[variable] ? PATRONES[variable].descripcion : null);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CODE_TTL = 5 * 60 * 1000;
@@ -207,7 +210,8 @@ export function crearApp({ repo, transporte, gatewayKey, remitente, notificador,
 
   // Avisos personales del usuario de la sesión.
   api.get('/avisos', (req, res) => {
-    res.json({ avisos: repo.avisos(req.usuario), no_leidos: repo.noLeidos(req.usuario), preferencias: repo.preferencias(req.usuario) });
+    const avisos = repo.avisos(req.usuario).map((a) => ({ ...a, etiqueta: etiquetaVariable(a.variable), descripcion: descripcionDe(a.variable) }));
+    res.json({ avisos, no_leidos: repo.noLeidos(req.usuario), preferencias: repo.preferencias(req.usuario) });
   });
 
   // Silenciar o volver a recibir los avisos de una silobolsa.
@@ -231,7 +235,7 @@ export function crearApp({ repo, transporte, gatewayKey, remitente, notificador,
   });
 
   api.get('/alertas', (req, res) => {
-    res.json(repo.alertas(req.query.reconocidas === '1'));
+    res.json(repo.alertas(req.query.reconocidas === '1').map((a) => ({ ...a, etiqueta: etiquetaVariable(a.variable), descripcion: descripcionDe(a.variable) })));
   });
 
   api.post('/alertas/:id/reconocer', (req, res) => {
@@ -271,7 +275,12 @@ export function crearApp({ repo, transporte, gatewayKey, remitente, notificador,
         const ts = typeof it.ts === 'number' && Number.isFinite(it.ts) ? Math.round(it.ts) : Date.now();
         if (!repo.guardarLectura(nodo.id, ts, valores)) return duplicadas++;
         aceptadas++;
-        for (const a of evaluar(valores, reglas)) {
+        const avisar = [
+          ...evaluar(valores, reglas),
+          // Patrones: se miran todos los sensores del tramo reciente. Son urgentes: van como crítica.
+          ...detectarPatrones(repo.lecturasDesde(nodo.id, ts - VENTANA).filter((l) => l.ts <= ts)).map((p) => ({ ...p, nivel: 'crit' }))
+        ];
+        for (const a of avisar) {
           if (repo.alertaActiva(nodo.id, a.variable)) continue;
           repo.crearAlerta(nodo.id, a.variable, a.valor, a.nivel, ts);
           alertasNuevas++;

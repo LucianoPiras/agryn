@@ -11,15 +11,16 @@
 // Canales: la app siempre recibe el aviso (queda en la base). Los demás canales son objetos
 // { nombre, enviar(aviso, usuario) } que devuelven una promesa: correo, Telegram, WhatsApp.
 import { VARIABLES } from './umbrales.js';
+import { PATRONES, etiquetaVariable } from './patrones.js';
 
 export const DEMORA_ATENCION = 30 * 60 * 1000;
 
 export function textoDeAlerta(a) {
-  const v = VARIABLES.find((x) => x.key === a.variable);
-  const nombre = v ? v.nombre : a.variable;
-  const unidad = v && v.unidad ? ' ' + v.unidad : '';
   const titulo = (a.nivel === 'crit' ? 'Alerta crítica' : 'Atención') + ' · ' + a.silobolsa + ' · ' + a.nodo;
-  const detalle = nombre + ' en ' + String(a.valor).replace('.', ',') + unidad + ', fuera del rango habitual.';
+  if (PATRONES[a.variable]) return { titulo, detalle: etiquetaVariable(a.variable) + '. ' + PATRONES[a.variable].descripcion };
+  const v = VARIABLES.find((x) => x.key === a.variable);
+  const unidad = v && v.unidad ? ' ' + v.unidad : '';
+  const detalle = etiquetaVariable(a.variable) + ' en ' + String(a.valor).replace('.', ',') + unidad + ', fuera del rango habitual.';
   return { titulo, detalle };
 }
 

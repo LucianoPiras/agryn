@@ -74,6 +74,8 @@ export default class App extends React.Component {
   componentDidMount() {
     this._t = setInterval(() => this.setState((s) => ({ tick: s.tick + 1 })), 1000);
     this._r = setInterval(() => { if (this.state.auth.user) this.cargarTodo(); }, 60 * 1000);
+    // Las alertas críticas no pueden esperar un minuto: avisos y alertas se revisan cada 15 segundos.
+    this._a = setInterval(() => { if (this.state.auth.user) { this.cargarAvisos(); this.cargarAlertas(); } }, 15 * 1000);
     const token = sesionLocal();
     if (token) {
       llamar('/api/sesion', { metodo: 'GET', token: token }).then((r) => {
@@ -84,7 +86,7 @@ export default class App extends React.Component {
       });
     }
   }
-  componentWillUnmount() { clearInterval(this._t); clearInterval(this._r); clearTimeout(this._g); clearTimeout(this._e); }
+  componentWillUnmount() { clearInterval(this._t); clearInterval(this._r); clearInterval(this._a); clearTimeout(this._g); clearTimeout(this._e); }
   componentDidUpdate(prevProps, prevState) {
     if (prevState.range !== this.state.range && this.state.auth.user) this.cargarSeries(this.state.bags);
   }
@@ -98,6 +100,7 @@ export default class App extends React.Component {
   }
   salir() {
     this._token = null;
+    this._conocidos = null;
     try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ }
     this.setState((s) => ({
       auth: Object.assign({}, s.auth, { user: null, token: null, paso: 'login', email: '', pw: '', code: '', err: '', aviso: '' }),
@@ -168,7 +171,20 @@ export default class App extends React.Component {
   // Avisos personales del usuario de la sesión
   async cargarAvisos() {
     const r = await this.api('/api/avisos');
-    if (r.ok) this.setState({ avisos: r.data.avisos, noLeidos: r.data.no_leidos, preferencias: r.data.preferencias });
+    if (!r.ok) return;
+    const conocidos = this._conocidos;
+    this._conocidos = new Set(r.data.avisos.map((a) => a.id));
+    this.setState({ avisos: r.data.avisos, noLeidos: r.data.no_leidos, preferencias: r.data.preferencias });
+    // Solo avisa de lo nuevo: la primera carga de la sesión no dispara nada.
+    if (conocidos) r.data.avisos.filter((a) => a.nivel === 'crit' && !a.leido && !conocidos.has(a.id)).forEach((a) => this.avisarEnEscritorio(a));
+  }
+  avisarEnEscritorio(a) {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    new Notification('Alerta crítica · ' + a.silobolsa, {
+      body: a.nodo + ': ' + (a.descripcion || a.etiqueta + ' fuera de rango. Revisá la silobolsa.'),
+      tag: 'aviso-' + a.id,
+      requireInteraction: true
+    });
   }
   async fijarPreferencia(silobolsaId, recibe) {
     const r = await this.api('/api/avisos/preferencias/' + silobolsaId, { metodo: 'PUT', cuerpo: { recibe: recibe } });
@@ -265,13 +281,22 @@ export default class App extends React.Component {
 
     // ---- alertas: las que trae el servidor y todavía no se reconocieron ----
     const alerts = S.alertas.map((a) => {
-      const iv = Math.max(0, VARS.findIndex((x) => x.key === a.variable));
+      const hace = 'hace ' + dur((Date.now() - a.ts) / 60000);
+      if (!VARS.some((x) => x.key === a.variable)) {
+        // Patrón (fermentación, rotura): no es una variable, así que no tiene rango ni gráfico propio
+        return {
+          id: a.id, bid: a.silobolsa_id, nid: a.nodo_id, iv: 0, vista: 'overview', sev: a.nivel, cur: a.valor, st: 'patron', acked: false,
+          title: a.silobolsa + ' · ' + a.nodo + ' · ' + a.etiqueta,
+          detail: a.descripcion + ' · ' + hace
+        };
+      }
+      const iv = VARS.findIndex((x) => x.key === a.variable);
       const v = VARS[iv];
       const st = a.valor > v.max ? 'high' : 'low';
       return {
-        id: a.id, bid: a.silobolsa_id, nid: a.nodo_id, iv: iv, sev: a.nivel, cur: a.valor, st: st, acked: false,
+        id: a.id, bid: a.silobolsa_id, nid: a.nodo_id, iv: iv, vista: v.key, sev: a.nivel, cur: a.valor, st: st, acked: false,
         title: a.silobolsa + ' · ' + a.nodo + ' · ' + v.name + ' ' + fmt(a.valor, v.dec) + unitTxt(v),
-        detail: (st === 'high' ? 'Supera el máximo habitual (' + fmt(v.max, v.dec) + unitTxt(v) + ')' : 'Está por debajo del mínimo habitual (' + fmt(v.min, v.dec) + unitTxt(v) + ')') + ' · hace ' + dur((Date.now() - a.ts) / 60000)
+        detail: (st === 'high' ? 'Supera el máximo habitual (' + fmt(v.max, v.dec) + unitTxt(v) + ')' : 'Está por debajo del mínimo habitual (' + fmt(v.min, v.dec) + unitTxt(v) + ')') + ' · ' + hace
       };
     });
     alerts.sort((a, b) => (a.acked - b.acked) || ((a.sev === 'crit' ? 0 : 1) - (b.sev === 'crit' ? 0 : 1)));
@@ -300,13 +325,14 @@ export default class App extends React.Component {
     const avisosList = S.avisos.map((a) => {
       const iv = Math.max(0, VARS.findIndex((x) => x.key === a.variable));
       const v = VARS[iv];
+      const detalleBase = a.descripcion || (v.name + ' en ' + fmt(a.valor, v.dec) + unitTxt(v));
       return {
         id: a.id, leido: !!a.leido,
         titulo: (a.nivel === 'crit' ? 'Alerta crítica' : 'Atención') + ' · ' + a.silobolsa + ' · ' + a.nodo,
-        detalle: v.name + ' en ' + fmt(a.valor, v.dec) + unitTxt(v) + ' · hace ' + dur((Date.now() - a.creada) / 60000),
+        detalle: detalleBase + ' · hace ' + dur((Date.now() - a.creada) / 60000),
         estado: a.leido ? 'Leído' : 'Nuevo',
         leer: () => self.leerAviso(a.id),
-        ver: go(a.silobolsa_id, a.nodo_id, v.key)
+        ver: go(a.silobolsa_id, a.nodo_id, a.descripcion ? 'overview' : v.key)
       };
     });
 
@@ -317,19 +343,24 @@ export default class App extends React.Component {
       border: a.sev === 'crit' && !a.acked ? 'rgba(200,50,31,0.55)' : '#DCE5E0',
       title: a.title, detail: a.detail,
       canAck: !a.acked, isAcked: a.acked,
-      open: go(a.bid, a.nid, VARS[a.iv].key), ack: doAck(a.id)
+      open: go(a.bid, a.nid, a.vista), ack: doAck(a.id)
     }));
     const unacked = alerts.filter((a) => !a.acked);
     const top = unacked[0];
+    const crit = top && top.sev === 'crit';
     const banner = top ? {
-      bg: top.sev === 'crit' ? '#FDECE8' : '#FFF4DD',
-      border: top.sev === 'crit' ? '#C8321F' : '#B7791F',
-      accent: top.sev === 'crit' ? '#B02A18' : '#8A4D00',
-      kicker: (top.sev === 'crit' ? 'Alerta crítica' : 'Atención') + (unacked.length > 1 ? ' · +' + (unacked.length - 1) + ' más' : ''),
+      bg: crit ? '#B02A18' : '#FFF4DD',
+      border: crit ? '#7A1B0F' : '#B7791F',
+      accent: crit ? '#FAF6E9' : '#8A4D00',
+      fg: crit ? '#FAF6E9' : '#0F2A1F',
+      iconFg: crit ? '#B02A18' : '#FAF6E9',
+      iconBg: crit ? '#FAF6E9' : '#8A4D00',
+      detailColor: crit ? '#FAF6E9' : '#2E453A',
+      kicker: (crit ? 'Alerta crítica' : 'Atención') + (unacked.length > 1 ? ' · +' + (unacked.length - 1) + ' más' : ''),
       title: top.title,
       detail: top.detail,
-      open: go(top.bid, top.nid, VARS[top.iv].key), ack: doAck(top.id)
-    } : { bg: '', border: '', accent: '', kicker: '', title: '', detail: '', open: null, ack: null };
+      open: go(top.bid, top.nid, top.vista), ack: doAck(top.id)
+    } : { bg: '', border: '', accent: '', fg: '', iconFg: '', iconBg: '', detailColor: '', kicker: '', title: '', detail: '', open: null, ack: null };
 
     // ---- gráficos ----
     const chart = (vi) => {
@@ -406,7 +437,7 @@ export default class App extends React.Component {
         }),
         compare: bags.map((b) => {
           const x = self.avg(b, vi, N24 - 1, N24);
-          const mine = alerts.filter((a) => a.bid === b.id && a.iv === vi);
+          const mine = alerts.filter((a) => a.bid === b.id && a.iv === vi && a.st !== 'patron');
           const worst = mine.some((a) => a.sev === 'crit') ? 'crit' : (mine.length ? 'warn' : 'ok');
           return {
             name: b.name, value: fmt(x, v.dec) + unitTxt(v),
@@ -569,6 +600,8 @@ export default class App extends React.Component {
       bagName: bo.name, scopeLabel, nextIn,
       logueado: !!A.user, usuario: A.user || '', avisoApp: S.avisoApp, nuevoNodo: S.nuevoNodo, onNuevoNodo, onNuevoNodoKey,
       avisosList, preferenciasList, noLeidos: S.noLeidos, avisosAbiertos: S.avisosAbiertos,
+      permisoAvisos: typeof Notification === 'undefined' ? 'no-disponible' : Notification.permission,
+      pedirPermisoAvisos: () => { Notification.requestPermission(); },
       umbralesRows, umbralesAbiertos: S.umbralesAbiertos,
       toggleUmbrales: () => {
         if (S.umbralesAbiertos) return self.setState({ umbralesAbiertos: false });
@@ -858,6 +891,17 @@ export default class App extends React.Component {
       </button>
       </div>
       </div>
+      {v.permisoAvisos === 'default' && (<div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center", padding: "12px", borderRadius: "8px", background: "#F1F6F3" }}>
+      <p style={{ margin: "0", flex: "1 1 220px", fontSize: "13px" }}>
+      Activá las notificaciones de este navegador para enterarte de las alertas críticas aunque la pestaña no esté a la vista.
+      </p>
+      <button type="button" className="btn primary" onClick={v.pedirPermisoAvisos}>
+      Activar notificaciones
+      </button>
+      </div>)}
+      {v.permisoAvisos === 'denied' && (<p role="note" style={{ margin: "0", fontSize: "13px", color: "#8F2113", fontWeight: "600" }}>
+      Las notificaciones de este navegador están bloqueadas. Para verlas, habilitalas en la configuración del navegador. Mientras tanto, las alertas críticas aparecen en el banner rojo de la app y llegan por correo.
+      </p>)}
       {v.preferenciasList.length > 0 && (<fieldset style={{ margin: "0", padding: "12px", borderRadius: "8px", border: "1px solid #DCE5E0", display: "flex", flexDirection: "column", gap: "4px" }}>
       <legend style={{ padding: "0 4px", fontSize: "13px", fontWeight: "600" }}>
       Silobolsas de las que querés recibir avisos
@@ -937,8 +981,8 @@ export default class App extends React.Component {
       </React.Fragment>))}
       </div>
       {v.hasBanner && (<>
-      <section role="alert" aria-live="assertive" className="flash" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: `${v.banner.bg}`, border: `1px solid ${v.banner.border}` }}>
-      <span style={{ width: "44px", height: "44px", flex: "none", borderRadius: "999px", background: `${v.banner.accent}`, color: "#FAF6E9", display: "grid", placeItems: "center" }} aria-hidden="true">
+      <section role="alert" aria-live="assertive" className="flash" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: `${v.banner.bg}`, border: `1px solid ${v.banner.border}`, color: `${v.banner.fg}` }}>
+      <span style={{ width: "44px", height: "44px", flex: "none", borderRadius: "999px", background: `${v.banner.iconBg}`, color: `${v.banner.iconFg}`, display: "grid", placeItems: "center" }} aria-hidden="true">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3 2.5 20h19L12 3Z" />
       <path d="M12 10v4.5M12 17.5h.01" />
@@ -951,7 +995,7 @@ export default class App extends React.Component {
       <p style={{ margin: "6px 0 0", font: "700 22px/1.15 'Inter', sans-serif", letterSpacing: "-0.02em" }}>
       {v.banner.title}
       </p>
-      <p style={{ margin: "4px 0 0", color: "#2E453A" }}>
+      <p style={{ margin: "4px 0 0", color: `${v.banner.detailColor}` }}>
       {v.banner.detail}
       </p>
       </div>

@@ -61,6 +61,14 @@ Notas:
 - El correo de ingreso sale por Gmail SMTP. Conviene probarlo apenas se publique, porque depende de que el servicio pueda salir a `smtp.gmail.com`.
 - Cada commit a `main` redespliega la app.
 
+**Patrones de riesgo** (`server/patrones.js`). Cada lectura se compara con las de las últimas 2 horas, con todos los sensores juntos:
+- **Posible fermentación:** la temperatura sube al menos 3 °C y el CO₂ al menos 0,5 puntos.
+- **Posible rotura o ingreso de aire:** el CO₂ baja al menos 0,5 puntos y la humedad sube al menos 1 punto.
+
+Estos patrones son **reglas de ejemplo**, no un diagnóstico: hay que validarlos con el equipo técnico con datos reales. Cuando se cumplen, la alerta es crítica y el aviso sale al instante, sin esperar la demora de 30 minutos.
+
+**Notificaciones de alertas críticas.** Llegan por tres caminos: el banner rojo de la app, el aviso del centro de avisos y el correo. Si el usuario activa las notificaciones del navegador, también aparecen como notificación del sistema mientras la app está abierta. La app no puede saltear las notificaciones que el usuario o el navegador tienen desactivadas. WhatsApp y Telegram todavía no están conectados: necesitan sus credenciales y el acceso a sus servicios desde el servidor.
+
 Pruebas: `npm test`.
 
 ## Correo y servidor

@@ -263,6 +263,35 @@ async function resolver(ruta, metodo, cuerpo, url) {
   return error(404, 'Ruta no encontrada en la demostración.');
 }
 
+// Conexiones de eventos abiertas (la app abre una al ingresar): así el simulador les avisa al instante.
+const oyentes = [];
+function emitir(nombre, datos = {}) {
+  for (const c of oyentes) for (const fn of c.listeners[nombre] || []) fn({ data: JSON.stringify(datos) });
+}
+
+// Simula lo que manda la central: un patrón en las últimas 2 horas y una alarma en un nodo sin alerta activa.
+const PATRONES_SIMULADOS = {
+  rotura: (i) => ({ ph: 6.5, temp: 18.2, hum: Number((12.6 + (1.6 * i) / 24).toFixed(1)), co2: Number((2.0 - (0.7 * i) / 24).toFixed(2)) }),
+  fermentacion: (i) => ({ ph: 6.5, temp: Number((18 + (4.4 * i) / 24).toFixed(1)), hum: 13.2, co2: Number((1.2 + (0.7 * i) / 24).toFixed(2)) })
+};
+export function simularAnomalia(tipo) {
+  const ahora = Date.now();
+  const nodo = estado.silos.flatMap((s) => s.nodos).find((n) => !estado.alertas.some((a) => a.nodo_id === n.id && a.variable === tipo && !a.reconocida));
+  if (!nodo) return { ok: false, mensaje: 'Todos los nodos ya tienen esa alarma sin reconocer. Reconocela para simular otra.' };
+  const patron = PATRONES_SIMULADOS[tipo];
+  const nuevas = Array.from({ length: 25 }, (_, i) => ({ ts: ahora - (24 - i) * 5 * MINUTO, ...patron(i) }));
+  estado.lecturas[nodo.id] = lecturas(nodo.id).filter((l) => l.ts < ahora - 2 * HORA).concat(nuevas);
+  const alerta = { id: nuevoId(estado.alertas), nodo_id: nodo.id, variable: tipo, valor: nuevas.at(-1)[tipo === 'rotura' ? 'co2' : 'temp'], nivel: 'crit', ts: ahora, reconocida: 0, creada: ahora, notificada: 1, diagnostico: diagnosticar(ventanaEn(estado.lecturas[nodo.id], ahora)) };
+  estado.alertas.push(alerta);
+  estado.avisos.push({ id: nuevoId(estado.avisos), usuario: USUARIO, alerta_id: alerta.id, creada: ahora, leido: 0 });
+  guardar();
+  emitir('alerta', { nuevas: 1 });
+  emitir('aviso', { id: alerta.id });
+  const info = nodoDe(nodo.id);
+  return { ok: true, silo: info.silo.nombre, nodo: info.nodo.nombre, titulo: (ETIQUETAS[tipo] || tipo) };
+}
+const ETIQUETAS = { rotura: 'Posible rotura o ingreso de aire', fermentacion: 'Posible fermentación' };
+
 // Reemplaza fetch para las rutas /api/ y el canal de eventos en vivo, que en la demo se simula con latidos.
 export function instalarApiDemo() {
   // La demo arranca con sesión iniciada: no hace falta correo ni código.
@@ -278,9 +307,9 @@ export function instalarApiDemo() {
     return resolver(url.split('?')[0], metodo, cuerpo, url);
   };
   window.EventSource = class {
-    constructor() { this.listeners = {}; }
+    constructor() { this.listeners = {}; oyentes.push(this); }
     addEventListener(nombre, fn) { (this.listeners[nombre] = this.listeners[nombre] || []).push(fn); }
-    close() {}
+    close() { oyentes.splice(oyentes.indexOf(this), 1); }
   };
   latir();
   setInterval(latir, 30 * 1000);

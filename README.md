@@ -45,7 +45,21 @@ AGRYN_GATEWAY_KEY=... node tools/simulador.js --dispositivos ESP32-A1,ESP32-A2 -
 AGRYN_GATEWAY_KEY=... node tools/simulador.js --dispositivos ESP32-A1 --en-vivo 60                 # en vivo
 ```
 
-**Avisos.** Cada alerta genera un aviso personal por usuario. Las críticas avisan al instante; las de atención, si siguen sin reconocerse a los 30 minutos (`server/notificaciones.js`). El aviso llega a la app (centro de avisos, con contador en la barra lateral) y por correo. Para sumar Telegram o WhatsApp hay que agregar un canal con la forma `{ nombre, enviar(aviso, usuario) }`.
+**Avisos.** Cada alerta genera un aviso personal por usuario. Las críticas avisan al instante; las de atención, si siguen sin reconocerse a los 30 minutos (`server/notificaciones.js`). El aviso llega a la app (centro de avisos, con contador en la barra lateral) y por correo. Por defecto cada usuario recibe los avisos de todas las silobolsas; desde el centro de avisos puede silenciar las que no le interesan. Para sumar Telegram o WhatsApp hay que agregar un canal con la forma `{ nombre, enviar(aviso, usuario) }`.
+
+## Publicar en Render
+
+El archivo `render.yaml` define el servicio. Pasos:
+
+1. Creá una cuenta en https://render.com y conectala con GitHub, autorizando el repositorio `LucianoPiras/agryn` (es privado).
+2. En Render, elegí **New → Blueprint** y seleccioná el repositorio. Render toma `render.yaml`.
+3. Te va a pedir tres valores que no van en el repositorio: `GMAIL_APP_PASSWORD`, `AGRYN_USUARIOS` (por ejemplo `[{"email":"...","password":"..."}]`) y `AGRYN_GATEWAY_KEY`.
+4. Esperá el primer deploy y abrí la URL que te da Render.
+
+Notas:
+- El disco persistente (`/var/data`, donde está la base SQLite) requiere un plan pago. El `render.yaml` usa `starter`.
+- El correo de ingreso sale por Gmail SMTP. Conviene probarlo apenas se publique, porque depende de que el servicio pueda salir a `smtp.gmail.com`.
+- Cada commit a `main` redespliega la app.
 
 Pruebas: `npm test`.
 

@@ -56,6 +56,12 @@ export function abrirBase(ruta = ':memory:') {
       password_hash TEXT NOT NULL,
       creado INTEGER NOT NULL
     );
+    -- Por defecto cada usuario recibe los avisos de todas las silobolsas; acá quedan las que silenció.
+    CREATE TABLE IF NOT EXISTS silenciadas (
+      usuario TEXT NOT NULL,
+      silobolsa_id INTEGER NOT NULL REFERENCES silobolsas(id) ON DELETE CASCADE,
+      PRIMARY KEY (usuario, silobolsa_id)
+    );
   `);
   // Umbrales de ejemplo, solo la primera vez: después los cambia el equipo desde la app.
   const sembrar = db.prepare('INSERT OR IGNORE INTO umbrales (variable, min, max) VALUES (?, ?, ?)');
@@ -105,6 +111,11 @@ export function crearRepo(db) {
     usuarios: q('SELECT email FROM usuarios ORDER BY email'),
     claveDe: q('SELECT password_hash FROM usuarios WHERE email = ?'),
     nuevoUsuario: q('INSERT OR IGNORE INTO usuarios (email, password_hash, creado) VALUES (?, ?, ?)'),
+    silenciadasDe: q('SELECT silobolsa_id FROM silenciadas WHERE usuario = ?'),
+    silenciar: q('INSERT OR IGNORE INTO silenciadas (usuario, silobolsa_id) VALUES (?, ?)'),
+    quitarSilencio: q('DELETE FROM silenciadas WHERE usuario = ? AND silobolsa_id = ?'),
+    siguen: q(`SELECT email FROM usuarios WHERE email NOT IN
+      (SELECT usuario FROM silenciadas WHERE silobolsa_id = ?) ORDER BY email`),
     alertas: q(`SELECT a.id, a.nodo_id, a.variable, a.valor, a.nivel, a.ts, a.reconocida, n.nombre AS nodo, s.id AS silobolsa_id, s.nombre AS silobolsa
       FROM alertas a JOIN nodos n ON n.id = a.nodo_id JOIN silobolsas s ON s.id = n.silobolsa_id
       WHERE a.reconocida = ? ORDER BY a.ts DESC LIMIT 200`),
@@ -172,6 +183,15 @@ export function crearRepo(db) {
     },
     editarUmbral(key, min, max) { st.editaUmbral.run(min, max, key); },
     usuarios() { return st.usuarios.all().map((u) => u.email); },
+    usuariosQueSiguen(silobolsaId) { return st.siguen.all(silobolsaId).map((u) => u.email); },
+    preferencias(usuario) {
+      const silenciadas = new Set(st.silenciadasDe.all(usuario).map((r) => r.silobolsa_id));
+      return st.silos.all().map((s) => ({ silobolsa_id: s.id, nombre: s.nombre, recibe: !silenciadas.has(s.id) }));
+    },
+    fijarPreferencia(usuario, silobolsaId, recibe) {
+      if (recibe) st.quitarSilencio.run(usuario, silobolsaId);
+      else st.silenciar.run(usuario, silobolsaId);
+    },
     crearUsuario(email, clave) { st.nuevoUsuario.run(email, hashClave(clave), Date.now()); },
     verificarUsuario(email, clave) {
       const r = st.claveDe.get(email);

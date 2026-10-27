@@ -1,0 +1,27 @@
+# Configuración para publicar AGRYN Monitoreo en Render (Blueprint).
+# Las claves no van acá: Render las pide al crear el servicio (sync: false).
+services:
+  - type: web
+    name: agryn-monitoreo
+    runtime: node
+    plan: starter            # el disco persistente requiere un plan pago
+    buildCommand: npm install && npm run build
+    startCommand: node --disable-warning=ExperimentalWarning server/index.js
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: AGRYN_DB
+        value: /var/data/agryn.db
+      - key: GMAIL_USER
+        value: Agryn.silobolsa@gmail.com
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: AGRYN_USUARIOS
+        sync: false
+      - key: AGRYN_GATEWAY_KEY
+        sync: false
+    disk:
+      name: agryn-datos
+      mountPath: /var/data
+      sizeGB: 1

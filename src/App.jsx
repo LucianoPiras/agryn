@@ -63,7 +63,7 @@ export default class App extends React.Component {
     super(props);
     this.state = {
       bags: [], datos: {}, alertas: [], view: 'overview', range: '24h', bag: null, node: null, cursor: null, tick: 0,
-      nuevoNodo: '', avisoApp: '', avisos: [], noLeidos: 0, avisosAbiertos: false, umbrales: VARS, umbralesAbiertos: false, umbralEdit: {}, form: { open: false, name: '', content: 'Sin definir' },
+      nuevoNodo: '', avisoApp: '', avisos: [], noLeidos: 0, avisosAbiertos: false, preferencias: [], umbrales: VARS, umbralesAbiertos: false, umbralEdit: {}, form: { open: false, name: '', content: 'Sin definir' },
       del: { step: null, pw: '', err: false }, confirm: null, confirmAt: 0,
       auth: { user: null, token: null, enviando: false, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' }
     };
@@ -99,7 +99,7 @@ export default class App extends React.Component {
     try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ }
     this.setState((s) => ({
       auth: Object.assign({}, s.auth, { user: null, token: null, paso: 'login', email: '', pw: '', code: '', err: '', aviso: '' }),
-      bags: [], datos: {}, alertas: [], avisos: [], noLeidos: 0, avisosAbiertos: false, umbralesAbiertos: false, bag: null, node: null
+      bags: [], datos: {}, alertas: [], avisos: [], noLeidos: 0, avisosAbiertos: false, preferencias: [], umbralesAbiertos: false, bag: null, node: null
     }));
   }
   error(msg) {
@@ -166,7 +166,12 @@ export default class App extends React.Component {
   // Avisos personales del usuario de la sesión
   async cargarAvisos() {
     const r = await this.api('/api/avisos');
-    if (r.ok) this.setState({ avisos: r.data.avisos, noLeidos: r.data.no_leidos });
+    if (r.ok) this.setState({ avisos: r.data.avisos, noLeidos: r.data.no_leidos, preferencias: r.data.preferencias });
+  }
+  async fijarPreferencia(silobolsaId, recibe) {
+    const r = await this.api('/api/avisos/preferencias/' + silobolsaId, { metodo: 'PUT', cuerpo: { recibe: recibe } });
+    if (!r.ok) this.error(r.error);
+    this.cargarAvisos();
   }
   async leerAviso(id) {
     const r = await this.api('/api/avisos/' + id + '/leer', { metodo: 'POST' });
@@ -282,6 +287,12 @@ export default class App extends React.Component {
         guardar: () => self.guardarUmbral(v.key)
       };
     });
+
+    // ---- preferencias: de qué silobolsas recibe avisos quien está logueado ----
+    const preferenciasList = S.preferencias.map((p) => ({
+      id: p.silobolsa_id, nombre: p.nombre, recibe: p.recibe,
+      cambiar: (ev) => self.fijarPreferencia(p.silobolsa_id, ev.target.checked)
+    }));
 
     // ---- centro de avisos: avisos personales de quien está logueado ----
     const avisosList = S.avisos.map((a) => {
@@ -555,7 +566,7 @@ export default class App extends React.Component {
     return {
       bagName: bo.name, scopeLabel, nextIn,
       logueado: !!A.user, usuario: A.user || '', avisoApp: S.avisoApp, nuevoNodo: S.nuevoNodo, onNuevoNodo, onNuevoNodoKey,
-      avisosList, noLeidos: S.noLeidos, avisosAbiertos: S.avisosAbiertos,
+      avisosList, preferenciasList, noLeidos: S.noLeidos, avisosAbiertos: S.avisosAbiertos,
       umbralesRows, umbralesAbiertos: S.umbralesAbiertos,
       toggleUmbrales: () => {
         if (S.umbralesAbiertos) return self.setState({ umbralesAbiertos: false });
@@ -845,6 +856,19 @@ export default class App extends React.Component {
       </button>
       </div>
       </div>
+      {v.preferenciasList.length > 0 && (<fieldset style={{ margin: "0", padding: "12px", borderRadius: "8px", border: "1px solid #DCE5E0", display: "flex", flexDirection: "column", gap: "4px" }}>
+      <legend style={{ padding: "0 4px", fontSize: "13px", fontWeight: "600" }}>
+      Silobolsas de las que querés recibir avisos
+      </legend>
+      {v.preferenciasList.map((p, $index) => (<React.Fragment key={$index}>
+      <label style={{ display: "flex", alignItems: "center", gap: "10px", minHeight: "44px", cursor: "pointer" }}>
+      <input type="checkbox" checked={p.recibe} onChange={p.cambiar} style={{ width: "20px", height: "20px", accentColor: "#005A36", flex: "none" }} />
+      <span>
+      {p.nombre}{p.recibe ? "" : " (silenciada)"}
+      </span>
+      </label>
+      </React.Fragment>))}
+      </fieldset>)}
       {v.avisosList.length === 0 && (<p style={{ margin: "0", color: "#4F6459" }}>
       Todavía no hay avisos. Te llegan cuando una alerta sigue sin reconocerse.
       </p>)}

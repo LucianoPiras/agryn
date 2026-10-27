@@ -207,7 +207,16 @@ export function crearApp({ repo, transporte, gatewayKey, remitente, notificador,
 
   // Avisos personales del usuario de la sesión.
   api.get('/avisos', (req, res) => {
-    res.json({ avisos: repo.avisos(req.usuario), no_leidos: repo.noLeidos(req.usuario) });
+    res.json({ avisos: repo.avisos(req.usuario), no_leidos: repo.noLeidos(req.usuario), preferencias: repo.preferencias(req.usuario) });
+  });
+
+  // Silenciar o volver a recibir los avisos de una silobolsa.
+  api.put('/avisos/preferencias/:id', (req, res) => {
+    const id = idDe(req.params.id);
+    if (!id || !repo.silobolsa(id)) return noEncontrado(res, 'Silobolsa');
+    if (typeof req.body?.recibe !== 'boolean') return res.status(400).json({ error: 'Indicá si querés recibir los avisos (true o false).' });
+    repo.fijarPreferencia(req.usuario, id, req.body.recibe);
+    res.json({ preferencias: repo.preferencias(req.usuario) });
   });
 
   api.post('/avisos/leer-todos', (req, res) => {

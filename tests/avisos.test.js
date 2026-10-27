@@ -106,3 +106,34 @@ test('no se puede marcar como leído un aviso de otro usuario', async () => {
 test('los avisos requieren sesión', async () => {
   assert.equal((await llamar('GET', '/api/avisos')).status, 401);
 });
+
+test('silenciar una silobolsa deja de avisar a ese usuario, y solo a él', async () => {
+  const tokenAna = await ingresar(ANA);
+  const tokenBruno = await ingresar(BRUNO);
+  const silo = await llamar('POST', '/api/silobolsas', { cuerpo: { nombre: 'Silenciada', contenido: 'Trigo' }, token: tokenAna });
+  await llamar('POST', `/api/silobolsas/${silo.data.id}/nodos`, { cuerpo: { nombre: 'Nodo S', device_id: 'AVI-S' }, token: tokenAna });
+
+  const pref = await llamar('PUT', `/api/avisos/preferencias/${silo.data.id}`, { cuerpo: { recibe: false }, token: tokenAna });
+  assert.equal(pref.status, 200);
+  assert.equal(pref.data.preferencias.find((p) => p.silobolsa_id === silo.data.id).recibe, false);
+
+  const anaAntes = (await llamar('GET', '/api/avisos', { token: tokenAna })).data.no_leidos;
+  const brunoAntes = (await llamar('GET', '/api/avisos', { token: tokenBruno })).data.no_leidos;
+  await llamar('POST', '/api/gateway/lecturas', { cuerpo: [{ device_id: 'AVI-S', ph: 8.3 }], gateway: true });
+
+  assert.equal((await llamar('GET', '/api/avisos', { token: tokenAna })).data.no_leidos, anaAntes, 'Ana no recibe el aviso');
+  assert.equal((await llamar('GET', '/api/avisos', { token: tokenBruno })).data.no_leidos, brunoAntes + 1, 'Bruno sí lo recibe');
+
+  // Volver a recibir: la preferencia se guarda y aplica a las alertas que llegan después.
+  await llamar('PUT', `/api/avisos/preferencias/${silo.data.id}`, { cuerpo: { recibe: true }, token: tokenAna });
+  const vuelta = await llamar('GET', '/api/avisos', { token: tokenAna });
+  assert.equal(vuelta.data.preferencias.find((p) => p.silobolsa_id === silo.data.id).recibe, true);
+});
+
+test('la preferencia valida el tipo y la silobolsa', async () => {
+  const tokenAna = await ingresar(ANA);
+  const lista = (await llamar('GET', '/api/avisos', { token: tokenAna })).data.preferencias;
+  const id = lista[0].silobolsa_id;
+  assert.equal((await llamar('PUT', `/api/avisos/preferencias/${id}`, { cuerpo: { recibe: 'no' }, token: tokenAna })).status, 400);
+  assert.equal((await llamar('PUT', '/api/avisos/preferencias/99999', { cuerpo: { recibe: false }, token: tokenAna })).status, 404);
+});

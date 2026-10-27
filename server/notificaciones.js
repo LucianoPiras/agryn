@@ -30,7 +30,7 @@ export function crearNotificador({ repo, canales = [] }) {
     for (const a of pendientes) {
       repo.marcarNotificada(a.id);
       const { titulo, detalle } = textoDeAlerta(a);
-      for (const email of repo.usuarios()) {
+      for (const email of repo.usuariosQueSiguen(a.silobolsa_id)) {
         repo.crearAviso(email, a.id, ahora);
         for (const c of canales) {
           // Un canal caído no frena a los demás ni al resto del proceso.

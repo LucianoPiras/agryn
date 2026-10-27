@@ -77,7 +77,7 @@ Para probar sin enviar correos: `AGRYN_MAIL=json npm run server` no manda nada y
 - **Alertas al instante** por nodo y por variable, con dos niveles (Atención y Crítica) y opción de reconocerlas.
 - **Lecturas cada 15 minutos**: el valor actual se actualiza una vez cada 15 min; las alertas saltan apenas hay una lectura fuera de rango.
 - **Eliminar silobolsa** con aviso de lo que se va a perder y contraseña.
-- **Modo demostración** (al pie): fuerza un desvío en una variable para ver cómo salta la alerta.
+- **Datos reales**: los valores, el historial y las alertas vienen del servidor. Las alertas quedan hasta que las reconozcas.
 
 ## Estructura
 
@@ -89,14 +89,14 @@ public/logos/      Logos de AGRYN (fondo transparente) y hoja invertida para fon
 brand-originals/   Archivos originales de los logos
 ```
 
-## Dónde tocar para pasar a datos reales
+## Cómo llegan los datos a la pantalla
 
-1. **Lecturas**: hoy salen de `val()` en `src/App.jsx`, que genera series simuladas. Hay que reemplazarla por lecturas reales de cada nodo (una cada 15 min). `avg()` calcula el promedio de los nodos de una silobolsa.
-2. **Modelo de datos**: `state.bags` es una lista de silobolsas con `id`, `name`, `content`, `custom` (si el contenido es "Otro") y `nodes` (`id`, `name`). Hoy se guarda en `localStorage` bajo la clave `agryn-planta-v1`; con datos reales debería vivir en un backend.
-3. **Umbrales**: están en la constante `VARS` (mínimo y máximo habitual de cada variable). **Son valores de ejemplo**: hay que definirlos con el equipo técnico según el grano almacenado. Las unidades también deben coincidir con las de los sensores reales.
-4. **Alertas**: se calculan en `renderVals()` recorriendo todos los nodos. Con datos reales conviene calcularlas en el servidor y enviar notificaciones (push, mail o WhatsApp).
-5. **Inicio de sesión**: la lista `USUARIOS` y el código de confirmación (`nuevoCodigo()`) viven en el navegador. En la versión real: validar en el servidor y enviar el código por correo con un servicio de mail.
-6. **Contraseña de eliminación**: la constante `DEMO_PASSWORD` (`12345`) está en el código del navegador, así que **no protege nada de verdad**. En la versión real hay que validar usuario y contraseña en un servidor.
+- `val()` en `src/App.jsx` lee la serie del nodo desde `state.datos`, que se carga de `/api/nodos/:id/serie` (24 h y el rango que se está viendo). Si el nodo no tiene lecturas, el valor es `null` y se muestra «—».
+- `avg()` promedia los nodos de una silobolsa que tienen lectura.
+- Las silobolsas, los nodos, el contenido y las alertas se leen y se guardan en la API. Se recargan al entrar y cada minuto.
+- Al dar de alta un nodo hay que indicar su identificador LoRa (el mismo que manda el gateway).
+- Los umbrales están en `server/umbrales.js` y en la constante `VARS` de la pantalla. **Son valores de ejemplo**: hay que definirlos con el equipo técnico según el grano almacenado.
+- `DEMO_PASSWORD` (`12345`) sigue en el navegador para confirmar la eliminación de una silobolsa. **No protege nada de verdad**: la API no la pide.
 
 ## Identidad de marca
 

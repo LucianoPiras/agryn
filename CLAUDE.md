@@ -23,12 +23,12 @@ Todo el texto de la interfaz va en español rioplatense (voseo: "Cambialo", "Pro
 ## Código
 - Un solo componente de clase en `src/App.jsx`. `renderVals()` arma el modelo de la vista y `render()` lo dibuja en JSX.
 - Los gráficos son SVG hechos a mano (sin librerías). Las series se calculan en `val()`.
-- Por ahora los datos son **simulados**. El valor actual cambia cada 15 minutos; las alertas son instantáneas.
+- Los datos vienen de la API (`server/`). `val()` lee la serie de `state.datos` y devuelve `null` si el nodo no tiene lecturas; `fmt()` muestra «—» en ese caso. Para probar sin hardware: `tools/simulador.js`.
 - No usar `<form>` con botón de envío para acciones de la app: en el editor de diseño de origen los formularios estaban bloqueados. Usar botones con `onClick` y manejar Enter con `onKeyDown`.
 - `DEMO_PASSWORD` es solo para el prototipo. No es seguridad real.
 
 ## Pendientes pensados
-- Conectar con los nodos reales y un backend (lecturas cada 15 min, silobolsas y nodos guardados en servidor).
+- Firmware del ESP32 gateway LoRa (la API ya recibe lecturas en `POST /api/gateway/lecturas`).
 - Definir umbrales reales por tipo de grano.
 - Notificaciones de alerta fuera de la app (push, mail o WhatsApp).
 - Pantalla para editar umbrales y vista de celular con alertas.

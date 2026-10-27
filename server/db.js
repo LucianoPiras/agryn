@@ -56,7 +56,7 @@ export function crearRepo(db) {
     entre: q('SELECT ts, ph, temp, hum, co2 FROM lecturas WHERE nodo_id = ? AND ts >= ? ORDER BY ts ASC'),
     alertaActiva: q('SELECT id FROM alertas WHERE nodo_id = ? AND variable = ? AND reconocida = 0'),
     nuevaAlerta: q('INSERT INTO alertas (nodo_id, variable, valor, nivel, ts) VALUES (?, ?, ?, ?, ?)'),
-    alertas: q(`SELECT a.id, a.nodo_id, a.variable, a.valor, a.nivel, a.ts, a.reconocida, n.nombre AS nodo, s.nombre AS silobolsa
+    alertas: q(`SELECT a.id, a.nodo_id, a.variable, a.valor, a.nivel, a.ts, a.reconocida, n.nombre AS nodo, s.id AS silobolsa_id, s.nombre AS silobolsa
       FROM alertas a JOIN nodos n ON n.id = a.nodo_id JOIN silobolsas s ON s.id = n.silobolsa_id
       WHERE a.reconocida = ? ORDER BY a.ts DESC LIMIT 200`),
     alerta: q('SELECT id FROM alertas WHERE id = ?'),

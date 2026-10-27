@@ -6,12 +6,6 @@ const VARS = [
   { key: 'hum',  name: 'Humedad',     unit: '%',  dec: 1, min: 12,  max: 14.5 },
   { key: 'co2',  name: 'CO₂',         unit: '%',  dec: 2, min: 0.5, max: 3 }
 ];
-const BASEOFF = {
-  0: { ph: 0.1,   temp: -0.2, hum: 0.15, co2: -0.1 },
-  1: { ph: -0.15, temp: 0.1,  hum: -0.2, co2: 0.2 },
-  2: { ph: 0.05,  temp: 0.25, hum: 0.1,  co2: 0.1 },
-  3: { ph: -0.05, temp: -0.1, hum: 0.05, co2: -0.2 }
-};
 const RANGES = {
   '24h': { n: 96, step: 15,  label: '24 h',    ticks: ['-24 h', '-18 h', '-12 h', '-6 h', 'Ahora'] },
   '7d':  { n: 84, step: 120, label: '7 días',  ticks: ['-7 d', '-6 d', '-5 d', '-4 d', '-3 d', '-2 d', '-1 d', 'Hoy'] },
@@ -20,14 +14,24 @@ const RANGES = {
 const C = { ok: '#005A36', okBg: 'rgba(0,90,54,0.10)', warn: '#8A4D00', warnBg: 'rgba(161,92,0,0.12)', crit: '#B02A18', critBg: 'rgba(200,50,31,0.10)', text: '#0F2A1F', muted: '#4F6459' };
 const SELF = 'rgba(250,246,233,0.14)', SELB = 'rgba(250,246,233,0.42)';
 const QUARTER = 15 * 60 * 1000;
-const STORE = 'agryn-planta-v1';
 const DEMO_PASSWORD = '12345';
+// Contenidos que ofrece el selector. Cualquier otro texto se guarda como "Otro".
+const CONTENIDOS = ['Soja', 'Maíz', 'Trigo', 'Girasol', 'Sorgo', 'Cebada', 'Forraje', 'Sin definir'];
+// Silobolsa vacía: se muestra mientras no hay ninguna cargada, para que la pantalla no se rompa.
+const SIN_SILO = { id: -1, name: 'Sin silobolsas', content: 'Sin definir', custom: '', nodes: [] };
 const SESION = 'agryn-sesion-v1';
 const CODE_TTL = 5 * 60 * 1000;
+// Pasa una silobolsa de la API al formato que usa la pantalla.
+function desdeApi(x) {
+  const conocido = CONTENIDOS.includes(x.contenido);
+  return {
+    id: x.id, name: x.nombre, content: conocido ? x.contenido : 'Otro', custom: conocido ? '' : x.contenido,
+    nodes: x.nodos.map((n) => ({ id: n.id, name: n.nombre, device: n.device_id }))
+  };
+}
 function contentOf(b) { const c = b.content || 'Sin definir'; return c === 'Otro' ? ((b.custom || '').trim() || 'Otro') : c; }
 
-function rnd(s) { const x = Math.sin(s * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
-function fmt(v, dec) { return v.toFixed(dec).replace('.', ','); }
+function fmt(v, dec) { return v == null ? '—' : v.toFixed(dec).replace('.', ','); }
 function dur(min) {
   if (min < 1) return 'menos de 1 min';
   if (min < 60) return Math.round(min) + ' min';
@@ -35,22 +39,6 @@ function dur(min) {
   const d = Math.floor(min / 1440), h = Math.round((min % 1440) / 60);
   return d + ' d' + (h ? ' ' + h + ' h' : '');
 }
-function mkNodes(n) { const a = []; for (let k = 0; k < n; k++) a.push({ id: k, name: 'Nodo ' + (k + 1) }); return a; }
-function initialBags() {
-  const cont = ['Soja', 'Maíz', 'Trigo', 'Forraje'];
-  return [0, 1, 2, 3].map((i) => ({ id: i, name: 'Silobolsa 0' + (i + 1), content: cont[i], nodes: mkNodes(4) }));
-}
-function loadBags() {
-  try {
-    const raw = window.localStorage.getItem(STORE);
-    if (raw) {
-      const a = JSON.parse(raw);
-      if (Array.isArray(a) && a.length && a.every((b) => b && typeof b.id === 'number' && typeof b.name === 'string' && Array.isArray(b.nodes) && b.nodes.length && b.nodes.every((x) => x && typeof x.id === 'number' && typeof x.name === 'string'))) return a;
-    }
-  } catch (e) { /* sin almacenamiento: arranca con los datos de ejemplo */ }
-  return initialBags();
-}
-function maxId(list) { return list.reduce((m, x) => Math.max(m, x.id), -1); }
 function emailValido(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
 function mmss(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 // Llama a la API de AGRYN (server/index.js). Nunca lanza: devuelve ok, status y un mensaje legible.
@@ -72,57 +60,143 @@ function sesionLocal() {
 export default class App extends React.Component {
   constructor(props) {
     super(props);
-    const bags = loadBags();
-    this.state = { bags: bags, view: 'overview', range: '24h', bag: bags[0].id, node: null, cursor: null, ack: {}, sim: null, simAt: 0, tick: 0, form: { open: false, name: '', nodes: 4, content: 'Sin definir' }, del: { step: null, pw: '', err: false }, confirm: null, confirmAt: 0, auth: { user: null, token: null, enviando: false, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' } };
-    if (bags.some((b) => b.id === 2)) this.state.bag = 2;
+    this.state = {
+      bags: [], datos: {}, alertas: [], view: 'overview', range: '24h', bag: null, node: null, cursor: null, tick: 0,
+      nuevoNodo: '', avisoApp: '', form: { open: false, name: '', content: 'Sin definir' },
+      del: { step: null, pw: '', err: false }, confirm: null, confirmAt: 0,
+      auth: { user: null, token: null, enviando: false, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' }
+    };
+    this._token = null;
   }
   componentDidMount() {
     this._t = setInterval(() => this.setState((s) => ({ tick: s.tick + 1 })), 1000);
+    this._r = setInterval(() => { if (this.state.auth.user) this.cargarTodo(); }, 60 * 1000);
     const token = sesionLocal();
     if (token) {
       llamar('/api/sesion', { metodo: 'GET', token: token }).then((r) => {
-        if (r.ok) this.setState((s) => ({ auth: Object.assign({}, s.auth, { user: r.data.email, token: token }) }));
-        else { try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ } }
+        if (!r.ok) { try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ } return; }
+        this._token = token;
+        this.setState((s) => ({ auth: Object.assign({}, s.auth, { user: r.data.email, token: token }) }));
+        this.cargarTodo();
       });
     }
   }
-  componentWillUnmount() { clearInterval(this._t); }
+  componentWillUnmount() { clearInterval(this._t); clearInterval(this._r); clearTimeout(this._g); clearTimeout(this._e); }
   componentDidUpdate(prevProps, prevState) {
-    if (prevState.bags !== this.state.bags) {
-      try { window.localStorage.setItem(STORE, JSON.stringify(this.state.bags)); } catch (e) { /* ignorar */ }
-    }
+    if (prevState.range !== this.state.range && this.state.auth.user) this.cargarSeries(this.state.bags);
   }
 
-  // lectura de un nodo; el valor "actual" solo cambia cada 15 min
+  // Llamada a la API con la sesión actual. Si el servidor dice que la sesión venció, se cierra.
+  api(ruta, { metodo = 'GET', cuerpo } = {}) {
+    return llamar(ruta, { metodo: metodo, cuerpo: cuerpo, token: this._token }).then((r) => {
+      if (r.status === 401) this.salir();
+      return r;
+    });
+  }
+  salir() {
+    this._token = null;
+    try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ }
+    this.setState((s) => ({
+      auth: Object.assign({}, s.auth, { user: null, token: null, paso: 'login', email: '', pw: '', code: '', err: '', aviso: '' }),
+      bags: [], datos: {}, alertas: [], bag: null, node: null
+    }));
+  }
+  error(msg) {
+    clearTimeout(this._e);
+    this.setState({ avisoApp: msg });
+    this._e = setTimeout(() => this.setState({ avisoApp: '' }), 6000);
+  }
+
+  // Carga desde la API
+  async cargarSilobolsas() {
+    const r = await this.api('/api/silobolsas');
+    if (!r.ok) return [];
+    const bags = r.data.map(desdeApi);
+    this.setState((s) => {
+      const bag = bags.some((b) => b.id === s.bag) ? s.bag : (bags[0] ? bags[0].id : null);
+      return { bags: bags, bag: bag, node: bag === s.bag ? s.node : null };
+    });
+    return bags;
+  }
+  // Series de cada nodo: siempre 24 h (alertas y tarjetas) y el rango que se está viendo.
+  async cargarSeries(bags) {
+    const rangos = ['24h', this.state.range].filter((x, i, a) => a.indexOf(x) === i);
+    const pedidos = [];
+    bags.forEach((b) => b.nodes.forEach((nd) => rangos.forEach((rg) => {
+      pedidos.push(this.api('/api/nodos/' + nd.id + '/serie?rango=' + rg).then((r) => ({ nd: nd.id, rg: rg, r: r })));
+    })));
+    const res = await Promise.all(pedidos);
+    this.setState((s) => {
+      const datos = Object.assign({}, s.datos);
+      res.forEach(({ nd, rg, r }) => { if (r.ok) datos[nd] = Object.assign({}, datos[nd], { [rg]: r.data }); });
+      return { datos: datos };
+    });
+  }
+  async cargarAlertas() {
+    const r = await this.api('/api/alertas');
+    if (r.ok) this.setState({ alertas: r.data });
+  }
+  async cargarTodo() {
+    const bags = await this.cargarSilobolsas();
+    await Promise.all([this.cargarSeries(bags), this.cargarAlertas()]);
+  }
+
+  // Cambios: cada uno llama a la API y después recarga lo que cambió
+  async crearSilobolsa(nombre, contenido) {
+    const r = await this.api('/api/silobolsas', { metodo: 'POST', cuerpo: { nombre: nombre, contenido: contenido } });
+    if (!r.ok) return this.error(r.error);
+    this.setState((s) => ({ form: { open: false, name: '', content: 'Sin definir' }, bag: r.data.id, node: null }));
+    this.cargarTodo();
+  }
+  async editarContenido(bagId, cambio) {
+    this.setState((s) => ({ bags: s.bags.map((b) => b.id === bagId ? Object.assign({}, b, cambio) : b) }));
+    clearTimeout(this._g);
+    this._g = setTimeout(async () => {
+      const b = this.state.bags.find((x) => x.id === bagId);
+      if (!b) return;
+      const r = await this.api('/api/silobolsas/' + bagId, { metodo: 'PATCH', cuerpo: { contenido: contentOf(b) } });
+      if (!r.ok) this.error(r.error);
+    }, 500);
+  }
+  async borrarSilobolsa(id) {
+    const r = await this.api('/api/silobolsas/' + id, { metodo: 'DELETE' });
+    if (!r.ok) return this.error(r.error);
+    this.setState({ bag: null, node: null, view: 'overview', cursor: null });
+    this.cargarTodo();
+  }
+  async agregarNodo(silo, deviceId) {
+    const r = await this.api('/api/silobolsas/' + silo.id + '/nodos', { metodo: 'POST', cuerpo: { nombre: 'Nodo ' + (silo.nodes.length + 1), device_id: deviceId } });
+    if (!r.ok) return this.error(r.error);
+    this.setState({ nuevoNodo: '', node: null });
+    this.cargarTodo();
+  }
+  async quitarNodo(id) {
+    const r = await this.api('/api/nodos/' + id, { metodo: 'DELETE' });
+    if (!r.ok) return this.error(r.error);
+    this.setState({ node: null, cursor: null });
+    this.cargarTodo();
+  }
+  async reconocer(id) {
+    this.setState((s) => ({ alertas: s.alertas.filter((a) => a.id !== id) }));
+    const r = await this.api('/api/alertas/' + id + '/reconocer', { metodo: 'POST' });
+    if (!r.ok) { this.error(r.error); this.cargarAlertas(); }
+  }
+
+  // Lectura de un nodo en el índice i de la serie del rango n (96 = 24 h, 84 = 7 d, 90 = 30 d).
+  // Devuelve null si el nodo todavía no tiene lecturas.
   val(b, nd, vi, i, n) {
     if (i === n - 1 && n !== 96) return this.val(b, nd, vi, 95, 96);
-    const v = VARS[vi], S = this.state;
-    const t = i / (n - 1), mid = (v.min + v.max) / 2, half = (v.max - v.min) / 2;
-    const base = BASEOFF[b.id] ? BASEOFF[b.id][v.key] : (rnd(b.id * 37 + vi * 5) - 0.5) * 0.5;
-    const off = base + (rnd(nd.id * 53 + vi * 11 + b.id * 7) - 0.5) * 0.5;
-    const wave = Math.sin(t * Math.PI * 2 * (1 + vi * 0.5) + b.id * 1.3 + vi + nd.id * 0.7) * 0.35;
-    const noise = (rnd(i * 7 + b.id * 131 + vi * 17 + nd.id * 977) - 0.5) * 0.35;
-    let x = mid + (off + wave + noise) * half * 0.9;
-    if (b.id === 2 && nd.id === 2 && v.key === 'temp') x += Math.max(0, (t - 0.8) / 0.2) * half * 1.0;
-    if (S.sim && S.sim.bag === b.id && S.sim.node === nd.id && S.sim.vi === vi) {
-      const k = 6;
-      if (i >= n - k) {
-        const r = (i - (n - k) + 1) / k;
-        x = x + (v.max + (v.max - v.min) * 0.45 - x) * r;
-      }
-    }
-    if (i === n - 1) {
-      const bucket = Math.floor(Date.now() / QUARTER);
-      x += Math.sin(bucket * 1.9 + vi * 3 + nd.id * 1.3 + b.id) * half * 0.04;
-    }
-    return x;
+    const rango = n === 84 ? '7d' : (n === 90 ? '30d' : '24h');
+    const s = this.state.datos[nd.id] && this.state.datos[nd.id][rango];
+    const serie = s && s.valores[VARS[vi].key];
+    return serie ? serie[i] : null;
   }
+  // Promedio de los nodos que tienen lectura en ese punto.
   avg(b, vi, i, n) {
-    let s = 0;
-    b.nodes.forEach((nd) => { s += this.val(b, nd, vi, i, n); });
-    return s / b.nodes.length;
+    const xs = b.nodes.map((nd) => this.val(b, nd, vi, i, n)).filter((x) => x != null);
+    return xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : null;
   }
-  status(x, v) { return x > v.max ? 'high' : (x < v.min ? 'low' : 'ok'); }
+  status(x, v) { if (x == null) return 'ok'; return x > v.max ? 'high' : (x < v.min ? 'low' : 'ok'); }
   sev(x, v) {
     const span = v.max - v.min;
     const over = x > v.max ? x - v.max : v.min - x;
@@ -132,7 +206,7 @@ export default class App extends React.Component {
   renderVals() {
     const S = this.state, self = this;
     const bags = S.bags;
-    const bo = bags.find((b) => b.id === S.bag) || bags[0];
+    const bo = bags.find((b) => b.id === S.bag) || bags[0] || SIN_SILO;
     const nsel = S.node == null ? null : (bo.nodes.find((x) => x.id === S.node) || null);
     const range = RANGES[S.range], n = range.n;
     const NN = bo.nodes.length;
@@ -142,32 +216,20 @@ export default class App extends React.Component {
     const scopeLabel = nsel == null ? 'Promedio de ' + NN + (NN === 1 ? ' nodo' : ' nodos') : nsel.name;
     const confirmLive = S.confirm && (Date.now() - S.confirmAt < 5000) ? S.confirm : null;
 
-    // ---- alertas: cada nodo, cada variable, al instante ----
-    const alerts = [];
-    bags.forEach((b) => {
-      b.nodes.forEach((nd) => {
-        VARS.forEach((v, iv) => {
-          const cur = self.val(b, nd, iv, 95, 96);
-          const st = self.status(cur, v);
-          if (st === 'ok') return;
-          let run = 0;
-          for (let i = 95; i >= 0; i--) { if (self.status(self.val(b, nd, iv, i, 96), v) !== 'ok') run++; else break; }
-          const isSim = !!(S.sim && S.sim.bag === b.id && S.sim.node === nd.id && S.sim.vi === iv);
-          const secs = Math.max(0, Math.floor((Date.now() - S.simAt) / 1000));
-          const since = isSim ? (secs < 60 ? 'hace ' + secs + ' s' : 'hace ' + Math.floor(secs / 60) + ' min') : 'hace ' + dur(run * 15);
-          const sev = self.sev(cur, v);
-          const id = b.id + '-' + nd.id + '-' + iv;
-          alerts.push({
-            id, bid: b.id, nid: nd.id, iv, sev, cur, st, acked: !!S.ack[id],
-            title: b.name + ' · ' + nd.name + ' · ' + v.name + ' ' + fmt(cur, v.dec) + unitTxt(v),
-            detail: (st === 'high' ? 'Supera el máximo habitual (' + fmt(v.max, v.dec) + unitTxt(v) + ')' : 'Está por debajo del mínimo habitual (' + fmt(v.min, v.dec) + unitTxt(v) + ')') + ' · ' + since
-          });
-        });
-      });
+    // ---- alertas: las que trae el servidor y todavía no se reconocieron ----
+    const alerts = S.alertas.map((a) => {
+      const iv = Math.max(0, VARS.findIndex((x) => x.key === a.variable));
+      const v = VARS[iv];
+      const st = a.valor > v.max ? 'high' : 'low';
+      return {
+        id: a.id, bid: a.silobolsa_id, nid: a.nodo_id, iv: iv, sev: a.nivel, cur: a.valor, st: st, acked: false,
+        title: a.silobolsa + ' · ' + a.nodo + ' · ' + v.name + ' ' + fmt(a.valor, v.dec) + unitTxt(v),
+        detail: (st === 'high' ? 'Supera el máximo habitual (' + fmt(v.max, v.dec) + unitTxt(v) + ')' : 'Está por debajo del mínimo habitual (' + fmt(v.min, v.dec) + unitTxt(v) + ')') + ' · hace ' + dur((Date.now() - a.ts) / 60000)
+      };
     });
     alerts.sort((a, b) => (a.acked - b.acked) || ((a.sev === 'crit' ? 0 : 1) - (b.sev === 'crit' ? 0 : 1)));
     const go = (bid, nid, view) => () => self.setState({ bag: bid, node: nid, view: view, cursor: null });
-    const doAck = (id) => () => self.setState((s) => ({ ack: Object.assign({}, s.ack, { [id]: true }) }));
+    const doAck = (id) => () => self.reconocer(id);
 
     const alertRows = alerts.map((a) => ({
       sev: a.sev === 'crit' ? 'Crítica' : 'Atención',
@@ -194,16 +256,19 @@ export default class App extends React.Component {
     const chart = (vi) => {
       const v = VARS[vi], vals = [];
       for (let i = 0; i < n; i++) vals.push(pt(vi, i, n));
-      let mn = Infinity, mx = -Infinity, sum = 0, out = 0;
-      vals.forEach((x) => { mn = Math.min(mn, x); mx = Math.max(mx, x); sum += x; if (x > v.max || x < v.min) out++; });
+      const conDatos = vals.filter((x) => x != null), hay = conDatos.length > 0, cuenta = Math.max(conDatos.length, 1);
+      let mn = hay ? Infinity : v.min, mx = hay ? -Infinity : v.max, sum = 0, out = 0;
+      conDatos.forEach((x) => { mn = Math.min(mn, x); mx = Math.max(mx, x); sum += x; if (x > v.max || x < v.min) out++; });
       const span = v.max - v.min;
       const dmin = Math.min(v.min - span * 0.45, mn - span * 0.05);
       const dmax = Math.max(v.max + span * 0.45, mx + span * 0.08);
       const Y = (x) => ((dmax - x) / (dmax - dmin)) * 100;
       const X = (i) => (i / (n - 1)) * 600;
-      let line = '', dots = '';
+      let line = '', dots = '', primero = true;
       vals.forEach((x, i) => {
-        line += (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(x).toFixed(2) + ' ';
+        if (x == null) return;
+        line += (primero ? 'M' : 'L') + X(i).toFixed(1) + ' ' + Y(x).toFixed(2) + ' ';
+        primero = false;
         if (x > v.max || x < v.min) dots += 'M' + X(i).toFixed(1) + ' ' + Y(x).toFixed(2) + ' h0 ';
       });
       const curV = vals[n - 1], st = self.status(curV, v);
@@ -228,10 +293,10 @@ export default class App extends React.Component {
         chipBg: sv === 'ok' ? C.okBg : (sv === 'crit' ? C.critBg : C.warnBg), chipFg: col(sv),
         border: st === 'ok' ? '#DCE5E0' : (sv === 'crit' ? 'rgba(200,50,31,0.55)' : 'rgba(161,92,0,0.5)'),
         note, noteColor,
-        line, area: line + 'L600 100 L0 100 Z', dots,
-        last: 'M600 ' + Y(curV).toFixed(2) + ' h0', lastColor: st === 'ok' ? C.ok : '#C8321F',
+        line, area: line ? line + 'L600 100 L0 100 Z' : '', dots,
+        last: curV == null ? '' : 'M600 ' + Y(curV).toFixed(2) + ' h0', lastColor: st === 'ok' ? C.ok : '#C8321F',
         bandY: Y(v.max), bandH: Y(v.min) - Y(v.max),
-        statMin: fmt(mn, v.dec) + unitTxt(v), statMax: fmt(mx, v.dec) + unitTxt(v), statAvg: fmt(sum / n, v.dec) + unitTxt(v),
+        statMin: fmt(hay ? mn : null, v.dec) + unitTxt(v), statMax: fmt(hay ? mx : null, v.dec) + unitTxt(v), statAvg: fmt(hay ? sum / cuenta : null, v.dec) + unitTxt(v),
         rangeText: fmt(v.min, v.dec) + ' a ' + fmt(v.max, v.dec) + unitTxt(v),
         open: go(bo.id, S.node, v.key), openLabel: 'Ver detalle de ' + v.name,
         limitLines: 'M0 ' + Y(v.max).toFixed(2) + ' H600 M0 ' + Y(v.min).toFixed(2) + ' H600',
@@ -240,15 +305,15 @@ export default class App extends React.Component {
         xTicks: range.ticks.map((l) => ({ label: l })),
         maxTop: Y(v.max), minTop: Y(v.min), maxText: fmt(v.max, v.dec) + unitTxt(v), minText: fmt(v.min, v.dec) + unitTxt(v),
         cursorIdx: idx, maxIdx: n - 1,
-        cursorLine: 'M' + cx.toFixed(1) + ' 0 V100', cursorDot: 'M' + cx.toFixed(1) + ' ' + Y(cv).toFixed(2) + ' h0',
+        cursorLine: 'M' + cx.toFixed(1) + ' 0 V100', cursorDot: cv == null ? '' : 'M' + cx.toFixed(1) + ' ' + Y(cv).toFixed(2) + ' h0',
         curColor: cst === 'ok' ? C.ok : '#C8321F',
         curText: fmt(cv, v.dec) + unitTxt(v),
         curWhen: idx === n - 1 ? 'Última lectura' : 'Hace ' + dur((n - 1 - idx) * range.step),
         chartLabel: 'Historial de ' + v.name + ' en ' + bo.name + ', ' + scopeLabel + ', ' + range.label,
         stats: [
-          { label: 'Mínimo del período', value: fmt(mn, v.dec) + unitTxt(v), color: mn < v.min ? C.crit : C.text },
-          { label: 'Promedio', value: fmt(sum / n, v.dec) + unitTxt(v), color: C.text },
-          { label: 'Máximo del período', value: fmt(mx, v.dec) + unitTxt(v), color: mx > v.max ? C.crit : C.text },
+          { label: 'Mínimo del período', value: fmt(hay ? mn : null, v.dec) + unitTxt(v), color: mn < v.min ? C.crit : C.text },
+          { label: 'Promedio', value: fmt(hay ? sum / cuenta : null, v.dec) + unitTxt(v), color: C.text },
+          { label: 'Máximo del período', value: fmt(hay ? mx : null, v.dec) + unitTxt(v), color: mx > v.max ? C.crit : C.text },
           { label: 'Tiempo fuera de rango', value: out ? dur(out * range.step) : 'Ninguno', color: out ? C.crit : C.ok }
         ],
         nodeCompare: bo.nodes.map((nd, k) => {
@@ -294,12 +359,13 @@ export default class App extends React.Component {
         if (st !== 'ok') { outC++; if (sv === 'crit') crit = true; }
         rows.push({ label: v.name, value: fmt(x, v.dec) + unitTxt(v), color: st === 'ok' ? C.text : col(sv), dot: col(sv) });
       });
+      const hay = VARS.some((v, vi) => self.val(bo, nd, vi, 95, 96) != null);
       const sv = outC === 0 ? 'ok' : (crit ? 'crit' : 'warn'), selected = !!(nsel && nsel.id === nd.id);
       const ckey = 'node-' + bo.id + '-' + nd.id;
       const asking = confirmLive === ckey;
       nodeCards.push({
         name: nd.name, rows,
-        statusLabel: outC === 0 ? 'Normal' : (outC === 1 ? '1 valor fuera de rango' : outC + ' valores fuera de rango'),
+        statusLabel: !hay ? 'Sin lecturas todavía' : (outC === 0 ? 'Normal' : (outC === 1 ? '1 valor fuera de rango' : outC + ' valores fuera de rango')),
         chipBg: sv === 'ok' ? C.okBg : (sv === 'crit' ? C.critBg : C.warnBg), chipFg: col(sv),
         bg: selected ? '#F1F6F3' : '#FAF6E9',
         border: selected ? C.ok : (sv === 'ok' ? '#DCE5E0' : (sv === 'crit' ? 'rgba(200,50,31,0.55)' : 'rgba(161,92,0,0.5)')),
@@ -311,10 +377,8 @@ export default class App extends React.Component {
         removeFg: asking ? C.crit : C.muted,
         remove: () => {
           if (asking) {
-            self.setState((s) => ({
-              bags: s.bags.map((b) => b.id === bo.id ? Object.assign({}, b, { nodes: b.nodes.filter((x) => x.id !== nd.id) }) : b),
-              node: s.node === nd.id ? null : s.node, sim: s.sim && s.sim.bag === bo.id && s.sim.node === nd.id ? null : s.sim, confirm: null, cursor: null
-            }));
+            self.setState({ confirm: null, cursor: null });
+            self.quitarNodo(nd.id);
           } else self.setState({ confirm: ckey, confirmAt: Date.now() });
         }
       });
@@ -327,37 +391,33 @@ export default class App extends React.Component {
     });
 
     // ---- alta y baja de silobolsas / nodos ----
-    const addNode = () => self.setState((s) => ({
-      bags: s.bags.map((b) => {
-        if (b.id !== bo.id) return b;
-        const id = maxId(b.nodes) + 1;
-        return Object.assign({}, b, { nodes: b.nodes.concat([{ id: id, name: 'Nodo ' + (id + 1) }]) });
-      }),
-      node: null
-    }));
+    const addNode = () => {
+      const device = S.nuevoNodo.trim();
+      if (!device) return self.error('Ingresá el identificador LoRa del nodo nuevo.');
+      if (bo.id < 0) return self.error('Primero creá una silobolsa.');
+      self.agregarNodo(bo, device);
+    };
+    const onNuevoNodo = (e) => { const val = e.target.value; self.setState({ nuevoNodo: val }); };
+    const onNuevoNodoKey = (e) => { if (e.key === 'Enter') addNode(); };
     // ---- eliminar silobolsa: aviso + contraseña ----
     const openDel = () => self.setState({ del: { step: 'warn', pw: '', err: false } });
     const delCancel = () => self.setState({ del: { step: null, pw: '', err: false } });
     const delContinue = () => self.setState({ del: { step: 'pass', pw: '', err: false } });
     const onDelPw = (e) => { const val = e.target.value; self.setState((s) => ({ del: Object.assign({}, s.del, { pw: val, err: false }) })); };
+
     const delSubmit = (e) => {
       if (e && e.preventDefault) e.preventDefault();
       if (self.state.del.pw !== DEMO_PASSWORD) { self.setState((s) => ({ del: Object.assign({}, s.del, { pw: '', err: true }) })); return; }
-      self.setState((s) => {
-        const rest = s.bags.filter((b) => b.id !== bo.id);
-        if (!rest.length) return { del: { step: null, pw: '', err: false } };
-        return { bags: rest, bag: rest[0].id, node: null, view: 'overview', cursor: null, del: { step: null, pw: '', err: false }, sim: s.sim && s.sim.bag === bo.id ? null : s.sim };
-      });
+      self.setState({ del: { step: null, pw: '', err: false } });
+      self.borrarSilobolsa(bo.id);
     };
     const bagAlerts = alerts.filter((a) => a.bid === bo.id).length;
     const delSummary = bo.name + ' contiene ' + contentOf(bo) + ' y tiene ' + NN + (NN === 1 ? ' nodo' : ' nodos') + (bagAlerts ? ' (' + bagAlerts + (bagAlerts === 1 ? ' alerta activa' : ' alertas activas') + ')' : '') + '.';
-    const setBagField = (field) => (e) => { const val = e.target.value; self.setState((s) => ({ bags: s.bags.map((b) => b.id === bo.id ? Object.assign({}, b, { [field]: val }) : b) })); };
-    const submitBag = () => self.setState((s) => {
-      const id = maxId(s.bags) + 1;
-      const name = (s.form.name || '').trim() || ('Silobolsa ' + (id + 1 < 10 ? '0' : '') + (id + 1));
-      const cnt = Math.max(1, Math.min(12, parseInt(s.form.nodes, 10) || 1));
-      return { bags: s.bags.concat([{ id: id, name: name.slice(0, 40), content: s.form.content || 'Sin definir', nodes: mkNodes(cnt) }]), bag: id, node: null, view: 'overview', cursor: null, form: { open: false, name: '', nodes: 4, content: 'Sin definir' } };
-    });
+    const setBagField = (field) => (e) => { if (bo.id < 0) return; self.editarContenido(bo.id, { [field]: e.target.value }); };
+    const submitBag = () => {
+      const nombre = (S.form.name || '').trim() || ('Silobolsa ' + String(bags.length + 1).padStart(2, '0'));
+      self.crearSilobolsa(nombre.slice(0, 40), S.form.content || 'Sin definir');
+    };
 
     // ---- navegación ----
     const bagList = bags.map((b) => {
@@ -386,14 +446,6 @@ export default class App extends React.Component {
       label: RANGES[k].label, pressed: S.range === k,
       bg: S.range === k ? C.ok : 'transparent', fg: S.range === k ? '#FAF6E9' : C.text,
       pick: () => self.setState({ range: k, cursor: null })
-    }));
-    const simNode = nsel || bo.nodes[0];
-    const simButtons = VARS.map((v, vi) => ({
-      name: v.name,
-      run: () => self.setState((s) => {
-        const ack = Object.assign({}, s.ack); delete ack[bo.id + '-' + simNode.id + '-' + vi];
-        return { sim: { bag: bo.id, node: simNode.id, vi: vi }, simAt: Date.now(), ack: ack };
-      })
     }));
     const nextIn = 15 - Math.floor((Date.now() % QUARTER) / 60000);
 
@@ -425,19 +477,20 @@ export default class App extends React.Component {
       const r = await llamar('/api/verify', { cuerpo: { email: A.email, code: A.code } });
       if (!r.ok) { setAuth({ enviando: false, code: '', err: r.error, ...(r.data.volverLogin ? { paso: 'login', email: '', vence: 0 } : {}) }); return; }
       try { window.localStorage.setItem(SESION, r.data.token); } catch (e) { /* sin almacenamiento: la sesión dura lo que la pestaña */ }
+      self._token = r.data.token;
       setAuth({ enviando: false, user: r.data.email, token: r.data.token, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' });
+      self.cargarTodo();
     };
     const volverLogin = () => setAuth({ paso: 'login', code: '', err: '', aviso: '' });
     const cerrarSesion = async () => {
-      await llamar('/api/logout', { token: A.token });
-      try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ }
-      setAuth({ user: null, token: null, paso: 'login', email: '', pw: '', code: '', err: '', aviso: '' });
+      await llamar('/api/logout', { token: self._token });
+      self.salir();
     };
     const restan = Math.max(0, A.vence - Date.now());
 
     return {
       bagName: bo.name, scopeLabel, nextIn,
-      logueado: !!A.user, usuario: A.user || '',
+      logueado: !!A.user, usuario: A.user || '', avisoApp: S.avisoApp, nuevoNodo: S.nuevoNodo, onNuevoNodo, onNuevoNodoKey,
       loginIsCodigo: A.paso === 'codigo', loginEmail: A.email, loginPw: A.pw, loginCodigo: A.code,
       loginDestino: A.email, loginErr: A.err, loginAviso: A.aviso, enviando: A.enviando,
       loginVence: mmss(restan), loginVencido: A.paso === 'codigo' && restan === 0,
@@ -449,15 +502,13 @@ export default class App extends React.Component {
       isOverview, isDetail: !isOverview,
       overviewPressed: isOverview, overviewBg: isOverview ? SELF : 'transparent', overviewBorder: isOverview ? SELB : 'transparent',
       goOverview: () => self.setState({ view: 'overview', cursor: null }),
-      bagList, varNav, rangeList, simButtons, nodeChips, nodeCards,
-      simTarget: bo.name + ' · ' + simNode.name,
+      bagList, varNav, rangeList, nodeChips, nodeCards,
       cards, d,
       hasBanner: !!top, banner,
       alertRows, noAlerts: alerts.length === 0,
       alertSummary: alerts.length === 0 ? 'Sin alertas' : alerts.length + (alerts.length === 1 ? ' alerta en toda la planta' : ' alertas en toda la planta'),
       onCursor: (e) => self.setState({ cursor: parseInt(e.target.value, 10) }),
       resetCursor: () => self.setState({ cursor: null }),
-      resetSim: () => self.setState({ sim: null, ack: {} }),
       // administración
       addNode, submitBag, openDel, delCancel, delContinue, onDelPw, delSubmit, delSummary,
       cantRemoveBag: bags.length <= 1,
@@ -468,10 +519,9 @@ export default class App extends React.Component {
       delOpen: !!S.del.step, delWarn: S.del.step === 'warn', delPass: S.del.step === 'pass', delErr: S.del.err, delPw: S.del.pw,
       formOpen: S.form.open,
       formLabel: S.form.open ? 'Cancelar' : 'Agregar silobolsa',
-      formName: S.form.name, formNodes: S.form.nodes,
-      toggleForm: () => self.setState((s) => ({ form: { open: !s.form.open, name: '', nodes: 4, content: 'Sin definir' } })),
+      formName: S.form.name,
+      toggleForm: () => self.setState((s) => ({ form: { open: !s.form.open, name: '', content: 'Sin definir' } })),
       onFormName: (e) => { const val = e.target.value; self.setState((s) => ({ form: Object.assign({}, s.form, { name: val }) })); },
-      onFormNodes: (e) => { const val = e.target.value; self.setState((s) => ({ form: Object.assign({}, s.form, { nodes: val }) })); },
       onFormContent: (e) => { const val = e.target.value; self.setState((s) => ({ form: Object.assign({}, s.form, { content: val }) })); }
     };
   }
@@ -582,12 +632,6 @@ export default class App extends React.Component {
       <input id="bag-name" type="text" maxLength="40" placeholder="Ej.: Silobolsa 05" value={v.formName} onChange={v.onFormName} style={{ minHeight: "44px", boxSizing: "border-box", padding: "0 12px", borderRadius: "8px", border: "1px solid transparent", font: "500 14px 'Montserrat', sans-serif", color: "#0F2A1F", background: "#FAF6E9" }} />
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-      <label htmlFor="bag-nodes" style={{ fontSize: "12px", fontWeight: "600" }}>
-      Cantidad de nodos (1 a 12)
-      </label>
-      <input id="bag-nodes" type="number" min="1" max="12" value={v.formNodes} onChange={v.onFormNodes} style={{ minHeight: "44px", boxSizing: "border-box", padding: "0 12px", borderRadius: "8px", border: "1px solid transparent", font: "500 14px 'Montserrat', sans-serif", color: "#0F2A1F", background: "#FAF6E9" }} />
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
       <label htmlFor="bag-content" style={{ fontSize: "12px", fontWeight: "600" }}>
       Contenido
       </label>
@@ -662,6 +706,9 @@ export default class App extends React.Component {
       </div>
       </aside>
       <main style={{ flex: "999 1 560px", minWidth: "0", boxSizing: "border-box", padding: "clamp(16px, 3vw, 32px)", display: "flex", flexDirection: "column", gap: "24px" }}>
+      {v.avisoApp && (<div role="alert" style={{ padding: "10px 12px", borderRadius: "8px", background: "#FDECE8", border: "1px solid #C8321F", color: "#8F2113", fontSize: "13px", fontWeight: "600" }}>
+      {v.avisoApp}
+      </div>)}
       <header style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "flex-end", justifyContent: "space-between" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "6px", minWidth: "0" }}>
       <p style={{ margin: "0", font: "600 13px/1 'Montserrat', sans-serif", letterSpacing: "0.1em", textTransform: "uppercase", color: "#4F6459" }}>
@@ -867,6 +914,7 @@ export default class App extends React.Component {
       </p>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" }}>
+      <input id="nodo-device" type="text" maxLength="64" className="field" aria-label="Identificador LoRa del nodo nuevo" placeholder="Identificador LoRa, ej.: ESP32-A1" value={v.nuevoNodo} onChange={v.onNuevoNodo} onKeyDown={v.onNuevoNodoKey} style={{ maxWidth: "240px" }} />
       <button className="btn primary" onClick={v.addNode}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#FAF6E9" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
       <path d="M12 5v14M5 12h14" />
@@ -1133,25 +1181,10 @@ export default class App extends React.Component {
       </section>
       </div>
       </>)}
-      <section aria-label="Modo demostración" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px", padding: "16px 20px", borderRadius: "12px", border: "1px dashed #B9CCC2", marginTop: "auto" }}>
-      <div style={{ flex: "1 1 260px", minWidth: "0" }}>
-      <p style={{ margin: "0", fontWeight: "600" }}>
-      Modo demostración
+      <section aria-label="Origen de los datos" style={{ padding: "16px 20px", borderRadius: "12px", border: "1px dashed #B9CCC2", marginTop: "auto" }}>
+      <p style={{ margin: "0", fontSize: "13px", color: "#4F6459" }}>
+      Los valores llegan desde los nodos cada 15 minutos. Las alertas saltan al instante y quedan hasta que las reconozcas.
       </p>
-      <p style={{ margin: "2px 0 0", fontSize: "13px", color: "#4F6459" }}>
-      Los datos son simulados. Probá cómo salta la alerta en {v.simTarget}.
-      </p>
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-      {v.simButtons.map((s, $index) => (<React.Fragment key={$index}>
-      <button className="btn" onClick={s.run}>
-      Simular desvío de {s.name}
-      </button>
-      </React.Fragment>))}
-      <button className="btn" onClick={v.resetSim}>
-      Restablecer
-      </button>
-      </div>
       </section>
       </main>
       {v.delOpen && (<>

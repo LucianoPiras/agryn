@@ -130,6 +130,15 @@ brand-originals/   Archivos originales de los logos
 - Los umbrales de ejemplo están en `server/umbrales.js`. Se guardan en la base y se cambian desde el panel **Umbrales de alerta** de la app. Los cambios valen para las lecturas que llegan después. **Son valores de ejemplo**: hay que definirlos con el equipo técnico según el grano almacenado.
 - Las contraseñas se guardan cifradas con scrypt (`server/clave.js`). Para borrar una silobolsa hay que escribir la contraseña del propio usuario, y la API la verifica.
 
+## Instalarla en el celular (PWA)
+
+La app se puede instalar sin tienda: se abre la URL en el navegador del celular y se agrega a la pantalla de inicio.
+
+- **Android (Chrome):** menú ⋮ → «Instalar aplicación» (o «Agregar a la pantalla de inicio»).
+- **iPhone (Safari):** botón Compartir → «Agregar a pantalla de inicio». Desde iOS 16.4, las notificaciones solo llegan si se abrió desde ese ícono.
+
+Una vez instalada, la pantalla carga rápido y muestra la última copia de la app aunque no haya conexión. Los datos nunca se guardan en el celular: si no hay conexión, las lecturas y alertas no se actualizan. El service worker está en `public/sw.js` y solo se registra en producción.
+
 ## Identidad de marca
 
 - Colores: verde esmeralda `#005A36` y marfil `#FAF6E9` (no se usa blanco puro).

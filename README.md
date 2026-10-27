@@ -45,6 +45,14 @@ AGRYN_GATEWAY_KEY=... node tools/simulador.js --dispositivos ESP32-A1,ESP32-A2 -
 AGRYN_GATEWAY_KEY=... node tools/simulador.js --dispositivos ESP32-A1 --en-vivo 60                 # en vivo
 ```
 
+**Simulación de una rotura** (para mostrar la app): carga 2 horas de lecturas con el patrón de rotura y manda la alarma de la central. La app avisa y muestra el diagnóstico. Crea la silobolsa y el nodo de demo si no existen.
+
+```bash
+AGRYN_GATEWAY_KEY=... AGRYN_CENTRAL_KEY=... AGRYN_DB=data/agryn.db npm run simular-rotura
+```
+
+Para repetirla, reconocé primero la alerta anterior en la app; si no, la central no la vuelve a mandar.
+
 **Avisos.** Cada alerta genera un aviso personal por usuario. Las críticas avisan al instante; las de atención, si siguen sin reconocerse a los 30 minutos (`server/notificaciones.js`). El aviso llega a la app (centro de avisos, con contador en la barra lateral) y por correo. Por defecto cada usuario recibe los avisos de todas las silobolsas; desde el centro de avisos puede silenciar las que no le interesan. Para sumar Telegram o WhatsApp hay que agregar un canal con la forma `{ nombre, enviar(aviso, usuario) }`.
 
 ## Publicar en Render

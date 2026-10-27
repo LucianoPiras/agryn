@@ -45,6 +45,8 @@ AGRYN_GATEWAY_KEY=... node tools/simulador.js --dispositivos ESP32-A1,ESP32-A2 -
 AGRYN_GATEWAY_KEY=... node tools/simulador.js --dispositivos ESP32-A1 --en-vivo 60                 # en vivo
 ```
 
+**Avisos.** Cada alerta genera un aviso personal por usuario. Las críticas avisan al instante; las de atención, si siguen sin reconocerse a los 30 minutos (`server/notificaciones.js`). El aviso llega a la app (centro de avisos, con contador en la barra lateral) y por correo. Para sumar Telegram o WhatsApp hay que agregar un canal con la forma `{ nombre, enviar(aviso, usuario) }`.
+
 Pruebas: `npm test`.
 
 ## Correo y servidor

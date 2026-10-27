@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import nodemailer from 'nodemailer';
 import { abrirBase, crearRepo } from './db.js';
 import { crearApp } from './app.js';
+import { crearNotificador } from './notificaciones.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
@@ -36,12 +37,29 @@ const transporte = process.env.AGRYN_MAIL === 'json'
 const ruta = process.env.AGRYN_DB || path.join(here, '..', 'data', 'agryn.db');
 const repo = crearRepo(abrirBase(ruta));
 
+const usuarios = cargarUsuarios();
+
+// Canal de correo: además del aviso en la app, cada usuario recibe un mail por alerta.
+const correo = {
+  nombre: 'correo',
+  enviar: ({ titulo, detalle }, para) => transporte.sendMail({
+    from: `"AGRYN Monitoreo" <${REMITENTE}>`,
+    to: para,
+    subject: '[AGRYN] ' + titulo,
+    text: detalle + '\n\nRevisá la app para ver el nodo y reconocer la alerta.'
+  })
+};
+const notificador = crearNotificador({ repo, usuarios, canales: [correo] });
+// Revisa cada minuto las alertas de atención que siguen sin reconocerse.
+setInterval(() => notificador.procesar(), 60 * 1000);
+
 const app = crearApp({
   repo,
   transporte,
   remitente: REMITENTE,
-  usuarios: cargarUsuarios(),
-  gatewayKey: process.env.AGRYN_GATEWAY_KEY || ''
+  usuarios,
+  gatewayKey: process.env.AGRYN_GATEWAY_KEY || '',
+  notificador
 });
 
 app.listen(PORT, () => {

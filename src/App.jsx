@@ -62,7 +62,7 @@ export default class App extends React.Component {
     super(props);
     this.state = {
       bags: [], datos: {}, alertas: [], view: 'overview', range: '24h', bag: null, node: null, cursor: null, tick: 0,
-      nuevoNodo: '', avisoApp: '', form: { open: false, name: '', content: 'Sin definir' },
+      nuevoNodo: '', avisoApp: '', avisos: [], noLeidos: 0, avisosAbiertos: false, form: { open: false, name: '', content: 'Sin definir' },
       del: { step: null, pw: '', err: false }, confirm: null, confirmAt: 0,
       auth: { user: null, token: null, enviando: false, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' }
     };
@@ -98,7 +98,7 @@ export default class App extends React.Component {
     try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ }
     this.setState((s) => ({
       auth: Object.assign({}, s.auth, { user: null, token: null, paso: 'login', email: '', pw: '', code: '', err: '', aviso: '' }),
-      bags: [], datos: {}, alertas: [], bag: null, node: null
+      bags: [], datos: {}, alertas: [], avisos: [], noLeidos: 0, avisosAbiertos: false, bag: null, node: null
     }));
   }
   error(msg) {
@@ -138,7 +138,22 @@ export default class App extends React.Component {
   }
   async cargarTodo() {
     const bags = await this.cargarSilobolsas();
-    await Promise.all([this.cargarSeries(bags), this.cargarAlertas()]);
+    await Promise.all([this.cargarSeries(bags), this.cargarAlertas(), this.cargarAvisos()]);
+  }
+
+  // Avisos personales del usuario de la sesión
+  async cargarAvisos() {
+    const r = await this.api('/api/avisos');
+    if (r.ok) this.setState({ avisos: r.data.avisos, noLeidos: r.data.no_leidos });
+  }
+  async leerAviso(id) {
+    const r = await this.api('/api/avisos/' + id + '/leer', { metodo: 'POST' });
+    if (!r.ok) this.error(r.error);
+    this.cargarAvisos();
+  }
+  async leerTodosAvisos() {
+    await this.api('/api/avisos/leer-todos', { metodo: 'POST' });
+    this.cargarAvisos();
   }
 
   // Cambios: cada uno llama a la API y después recarga lo que cambió
@@ -230,6 +245,20 @@ export default class App extends React.Component {
     alerts.sort((a, b) => (a.acked - b.acked) || ((a.sev === 'crit' ? 0 : 1) - (b.sev === 'crit' ? 0 : 1)));
     const go = (bid, nid, view) => () => self.setState({ bag: bid, node: nid, view: view, cursor: null });
     const doAck = (id) => () => self.reconocer(id);
+
+    // ---- centro de avisos: avisos personales de quien está logueado ----
+    const avisosList = S.avisos.map((a) => {
+      const iv = Math.max(0, VARS.findIndex((x) => x.key === a.variable));
+      const v = VARS[iv];
+      return {
+        id: a.id, leido: !!a.leido,
+        titulo: (a.nivel === 'crit' ? 'Alerta crítica' : 'Atención') + ' · ' + a.silobolsa + ' · ' + a.nodo,
+        detalle: v.name + ' en ' + fmt(a.valor, v.dec) + unitTxt(v) + ' · hace ' + dur((Date.now() - a.creada) / 60000),
+        estado: a.leido ? 'Leído' : 'Nuevo',
+        leer: () => self.leerAviso(a.id),
+        ver: go(a.silobolsa_id, a.nodo_id, v.key)
+      };
+    });
 
     const alertRows = alerts.map((a) => ({
       sev: a.sev === 'crit' ? 'Crítica' : 'Atención',
@@ -491,6 +520,9 @@ export default class App extends React.Component {
     return {
       bagName: bo.name, scopeLabel, nextIn,
       logueado: !!A.user, usuario: A.user || '', avisoApp: S.avisoApp, nuevoNodo: S.nuevoNodo, onNuevoNodo, onNuevoNodoKey,
+      avisosList, noLeidos: S.noLeidos, avisosAbiertos: S.avisosAbiertos,
+      toggleAvisos: () => { const abrir = !S.avisosAbiertos; self.setState({ avisosAbiertos: abrir }); if (abrir) self.cargarAvisos(); },
+      leerTodos: () => self.leerTodosAvisos(),
       loginIsCodigo: A.paso === 'codigo', loginEmail: A.email, loginPw: A.pw, loginCodigo: A.code,
       loginDestino: A.email, loginErr: A.err, loginAviso: A.aviso, enviando: A.enviando,
       loginVence: mmss(restan), loginVencido: A.paso === 'codigo' && restan === 0,
@@ -697,6 +729,9 @@ export default class App extends React.Component {
       </React.Fragment>))}
       </nav>
       <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "auto" }}>
+      <button className="row-btn" onClick={v.toggleAvisos} aria-expanded={v.avisosAbiertos} style={{ justifyContent: "center", fontWeight: "600", border: "1px solid rgba(250,246,233,0.42)" }}>
+      {v.noLeidos ? "Avisos · " + v.noLeidos + " sin leer" : "Avisos"}
+      </button>
       <p style={{ margin: "0 12px", fontSize: "12px", color: "rgba(250,246,233,0.82)", overflowWrap: "anywhere" }}>
       Sesión iniciada como {v.usuario}
       </p>
@@ -709,6 +744,44 @@ export default class App extends React.Component {
       {v.avisoApp && (<div role="alert" style={{ padding: "10px 12px", borderRadius: "8px", background: "#FDECE8", border: "1px solid #C8321F", color: "#8F2113", fontSize: "13px", fontWeight: "600" }}>
       {v.avisoApp}
       </div>)}
+      {v.avisosAbiertos && (<section aria-label="Centro de avisos" style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px 20px", borderRadius: "12px", background: "#FAF6E9", border: "1px solid #DCE5E0" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
+      <h2 style={{ margin: "0", font: "700 20px/1.1 'Inter', sans-serif", letterSpacing: "-0.02em" }}>
+      Centro de avisos
+      </h2>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+      <button type="button" className="btn" onClick={v.leerTodos} disabled={!v.noLeidos}>
+      Marcar todos como leídos
+      </button>
+      <button type="button" className="btn" onClick={v.toggleAvisos}>
+      Cerrar
+      </button>
+      </div>
+      </div>
+      {v.avisosList.length === 0 && (<p style={{ margin: "0", color: "#4F6459" }}>
+      Todavía no hay avisos. Te llegan cuando una alerta sigue sin reconocerse.
+      </p>)}
+      {v.avisosList.map((a, $index) => (<React.Fragment key={$index}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderRadius: "8px", border: "1px solid #DCE5E0", background: a.leido ? "transparent" : "#F1F6F3" }}>
+      <div style={{ flex: "1 1 220px", minWidth: "0" }}>
+      <p style={{ margin: "0", fontWeight: "600" }}>
+      {a.titulo}
+      </p>
+      <p style={{ margin: "2px 0 0", fontSize: "13px", color: "#4F6459" }}>
+      {a.estado} · {a.detalle}
+      </p>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+      <button type="button" className="btn" onClick={a.ver}>
+      Ver nodo
+      </button>
+      {!a.leido && (<button type="button" className="btn" onClick={a.leer}>
+      Marcar como leído
+      </button>)}
+      </div>
+      </div>
+      </React.Fragment>))}
+      </section>)}
       <header style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "flex-end", justifyContent: "space-between" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "6px", minWidth: "0" }}>
       <p style={{ margin: "0", font: "600 13px/1 'Montserrat', sans-serif", letterSpacing: "0.1em", textTransform: "uppercase", color: "#4F6459" }}>

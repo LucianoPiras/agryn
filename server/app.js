@@ -12,7 +12,7 @@ const SESSION_TTL = 12 * 60 * 60 * 1000;
 const MAX_INTENTOS = 3;
 const MAX_LOTE = 500;
 
-export function crearApp({ repo, transporte, usuarios, gatewayKey, remitente, dist = path.join(here, '..', 'dist') }) {
+export function crearApp({ repo, transporte, usuarios, gatewayKey, remitente, notificador, dist = path.join(here, '..', 'dist') }) {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
 
@@ -108,7 +108,12 @@ export function crearApp({ repo, transporte, usuarios, gatewayKey, remitente, di
   });
 
   // ---------- API de la app (requiere sesión) ----------
-  const requiereSesion = (req, res, next) => (sesionDe(req) ? next() : res.status(401).json({ error: 'Iniciá sesión para continuar.' }));
+  const requiereSesion = (req, res, next) => {
+    const s = sesionDe(req);
+    if (!s) return res.status(401).json({ error: 'Iniciá sesión para continuar.' });
+    req.usuario = s.email;
+    next();
+  };
   const api = express.Router();
   api.use(requiereSesion);
 
@@ -183,6 +188,22 @@ export function crearApp({ repo, transporte, usuarios, gatewayKey, remitente, di
     res.json(serie(lecturas, rango, ahora));
   });
 
+  // Avisos personales del usuario de la sesión.
+  api.get('/avisos', (req, res) => {
+    res.json({ avisos: repo.avisos(req.usuario), no_leidos: repo.noLeidos(req.usuario) });
+  });
+
+  api.post('/avisos/leer-todos', (req, res) => {
+    repo.leerTodosAvisos(req.usuario);
+    res.json({ ok: true });
+  });
+
+  api.post('/avisos/:id/leer', (req, res) => {
+    const id = idDe(req.params.id);
+    if (!id || !repo.leerAviso(id, req.usuario)) return noEncontrado(res, 'Aviso');
+    res.json({ ok: true });
+  });
+
   api.get('/alertas', (req, res) => {
     res.json(repo.alertas(req.query.reconocidas === '1'));
   });
@@ -230,6 +251,8 @@ export function crearApp({ repo, transporte, usuarios, gatewayKey, remitente, di
         }
       });
     });
+    // Las críticas se avisan ya; las de atención quedan para el ciclo de avisos si siguen sin reconocerse.
+    if (notificador) notificador.procesar();
     res.status(rechazadas.length === lote.length ? 422 : 200).json({ aceptadas, duplicadas, rechazadas, alertas_nuevas: alertasNuevas });
   });
 

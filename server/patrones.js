@@ -12,6 +12,10 @@ export const PATRONES = {
   rotura: {
     nombre: 'Posible rotura o ingreso de aire',
     descripcion: 'El CO₂ bajó de golpe y la humedad subió. Revisá si hay una rotura o una pérdida.'
+  },
+  sin_datos: {
+    nombre: 'Sin datos de la central',
+    descripcion: 'El nodo no envió lecturas en los últimos minutos. Revisá la conexión de la central.'
   }
 };
 

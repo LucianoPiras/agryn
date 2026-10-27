@@ -15,6 +15,8 @@ import nodemailer from 'nodemailer';
 import { abrirBase, crearRepo } from './db.js';
 import { crearApp } from './app.js';
 import { crearNotificador } from './notificaciones.js';
+import { crearBus } from './eventos.js';
+import { verificarSinDatos } from './salud.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
@@ -52,9 +54,12 @@ const correo = {
     text: detalle + '\n\nRevisá la app para ver el nodo y reconocer la alerta.'
   })
 };
-const notificador = crearNotificador({ repo, canales: [correo] });
+const bus = crearBus();
+const notificador = crearNotificador({ repo, canales: [correo], bus });
 // Revisa cada minuto las alertas de atención que siguen sin reconocerse.
 setInterval(() => notificador.procesar(), 60 * 1000);
+// Si una silobolsa deja de mandar datos, la alerta sale enseguida.
+setInterval(() => verificarSinDatos(repo, bus, notificador), 30 * 1000);
 
 const app = crearApp({
   repo,
@@ -62,6 +67,7 @@ const app = crearApp({
   remitente: REMITENTE,
   gatewayKey: process.env.AGRYN_GATEWAY_KEY || '',
   centralKey: process.env.AGRYN_CENTRAL_KEY || '',
+  bus,
   notificador
 });
 

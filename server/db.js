@@ -83,7 +83,9 @@ export function crearRepo(db) {
     nuevaSilo: q('INSERT INTO silobolsas (nombre, contenido, creada) VALUES (?, ?, ?)'),
     editaSilo: q('UPDATE silobolsas SET nombre = ?, contenido = ? WHERE id = ?'),
     borraSilo: q('DELETE FROM silobolsas WHERE id = ?'),
-    nodosDe: q('SELECT id, silobolsa_id, nombre, device_id FROM nodos WHERE silobolsa_id = ? ORDER BY id'),
+    nodosDe: q(`SELECT n.id, n.silobolsa_id, n.nombre, n.device_id, (SELECT MAX(ts) FROM lecturas WHERE nodo_id = n.id) AS ultima_ts
+      FROM nodos n WHERE n.silobolsa_id = ? ORDER BY n.id`),
+    todosNodos: q('SELECT id, silobolsa_id, nombre, device_id FROM nodos ORDER BY id'),
     nodo: q('SELECT id, silobolsa_id, nombre, device_id FROM nodos WHERE id = ?'),
     nodoPorDevice: q('SELECT id, silobolsa_id, nombre, device_id FROM nodos WHERE device_id = ?'),
     nuevoNodo: q('INSERT INTO nodos (silobolsa_id, nombre, device_id) VALUES (?, ?, ?)'),
@@ -152,6 +154,7 @@ export function crearRepo(db) {
     },
     borrarSilobolsa(id) { return st.borraSilo.run(id).changes > 0; },
     nodo(id) { return st.nodo.get(id) || null; },
+    nodos() { return st.todosNodos.all(); },
     nodoPorDevice(deviceId) { return st.nodoPorDevice.get(deviceId) || null; },
     crearNodo(silobolsaId, nombre, deviceId) {
       const info = st.nuevoNodo.run(silobolsaId, nombre, deviceId);

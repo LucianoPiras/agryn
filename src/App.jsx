@@ -14,7 +14,6 @@ const RANGES = {
 const C = { ok: '#005A36', okBg: 'rgba(0,90,54,0.10)', warn: '#8A4D00', warnBg: 'rgba(161,92,0,0.12)', crit: '#B02A18', critBg: 'rgba(200,50,31,0.10)', text: '#0F2A1F', muted: '#4F6459' };
 const SELF = 'rgba(250,246,233,0.14)', SELB = 'rgba(250,246,233,0.42)';
 // Los nodos mandan una lectura cada 30 minutos; la pantalla lo muestra como próxima lectura.
-const MEDIA_HORA = 30 * 60 * 1000;
 const N24 = RANGES['24h'].n;
 // Contenidos que ofrece el selector. Cualquier otro texto se guarda como "Otro".
 const CONTENIDOS = ['Soja', 'Maíz', 'Trigo', 'Girasol', 'Sorgo', 'Cebada', 'Forraje', 'Sin definir'];
@@ -27,13 +26,15 @@ function desdeApi(x) {
   const conocido = CONTENIDOS.includes(x.contenido);
   return {
     id: x.id, name: x.nombre, content: conocido ? x.contenido : 'Otro', custom: conocido ? '' : x.contenido,
-    nodes: x.nodos.map((n) => ({ id: n.id, name: n.nombre, device: n.device_id }))
+    nodes: x.nodos.map((n) => ({ id: n.id, name: n.nombre, device: n.device_id, ultimaTs: n.ultima_ts }))
   };
 }
 function contentOf(b) { const c = b.content || 'Sin definir'; return c === 'Otro' ? ((b.custom || '').trim() || 'Otro') : c; }
 
 // Número escrito con coma o punto; vacío o inválido da NaN.
 function aNumero(x) { const t = String(x).trim().replace(',', '.'); return t === '' ? NaN : Number(t); }
+// Tiempo transcurrido en segundos o minutos, para textos como «hace 12 s».
+function haceTxt(ms) { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + ' s' : dur(s / 60); }
 function fmt(v, dec) { return v == null ? '—' : v.toFixed(dec).replace('.', ','); }
 function dur(min) {
   if (min < 1) return 'menos de 1 min';
@@ -85,10 +86,11 @@ export default class App extends React.Component {
         this._token = token;
         this.setState((s) => ({ auth: Object.assign({}, s.auth, { user: r.data.email, token: token }) }));
         this.cargarTodo();
+        this.conectarEventos();
       });
     }
   }
-  componentWillUnmount() { window.removeEventListener('keydown', this._k); clearInterval(this._t); clearInterval(this._r); clearInterval(this._a); clearTimeout(this._g); clearTimeout(this._e); }
+  componentWillUnmount() { window.removeEventListener('keydown', this._k); this.cerrarEventos(); clearInterval(this._t); clearInterval(this._r); clearInterval(this._a); clearTimeout(this._g); clearTimeout(this._e); }
   componentDidUpdate(prevProps, prevState) {
     if (prevState.range !== this.state.range && this.state.auth.user) this.cargarSeries(this.state.bags);
   }
@@ -102,6 +104,7 @@ export default class App extends React.Component {
   }
   salir() {
     this._token = null;
+    this.cerrarEventos();
     this._conocidos = null;
     try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ }
     this.setState((s) => ({
@@ -147,6 +150,24 @@ export default class App extends React.Component {
   async cargarTodo() {
     const bags = await this.cargarSilobolsas();
     await Promise.all([this.cargarSeries(bags), this.cargarAlertas(), this.cargarAvisos(), this.cargarUmbrales()]);
+  }
+
+  // Conexión en tiempo real: la central y las anomalías llegan en el momento, sin esperar la próxima consulta
+  async conectarEventos() {
+    if (this._es || !this._token) return;
+    const r = await this.api('/api/eventos/ticket', { metodo: 'POST' });
+    if (!r.ok || this._es) return;
+    const es = new EventSource('/api/eventos?ticket=' + encodeURIComponent(r.data.ticket));
+    this._es = es;
+    es.addEventListener('aviso', () => this.cargarAvisos());
+    es.addEventListener('alerta', () => this.cargarAlertas());
+    es.addEventListener('datos', async () => { const bags = await this.cargarSilobolsas(); this.cargarSeries(bags); });
+    // Si se corta, se vuelve a conectar con un ticket nuevo (cada ticket sirve una sola vez).
+    es.onerror = () => { es.close(); this._es = null; clearTimeout(this._re); this._re = setTimeout(() => this.conectarEventos(), 5000); };
+  }
+  cerrarEventos() {
+    clearTimeout(this._re);
+    if (this._es) { this._es.close(); this._es = null; }
   }
 
   // Umbrales de alerta: se leen y se guardan en la API
@@ -477,6 +498,7 @@ export default class App extends React.Component {
       const asking = confirmLive === ckey;
       nodeCards.push({
         name: nd.name, rows,
+        ultimaTexto: nd.ultimaTs ? 'Última lectura hace ' + haceTxt(Date.now() - nd.ultimaTs) : 'Sin lecturas todavía',
         statusLabel: !hay ? 'Sin lecturas todavía' : (outC === 0 ? 'Normal' : (outC === 1 ? '1 valor fuera de rango' : outC + ' valores fuera de rango')),
         chipBg: sv === 'ok' ? C.okBg : (sv === 'crit' ? C.critBg : C.warnBg), chipFg: col(sv),
         bg: selected ? '#F1F6F3' : '#FAF6E9',
@@ -557,7 +579,8 @@ export default class App extends React.Component {
       bg: S.range === k ? C.ok : 'transparent', fg: S.range === k ? '#FAF6E9' : C.text,
       pick: () => self.setState({ range: k, cursor: null })
     }));
-    const nextIn = 30 - Math.floor((Date.now() % MEDIA_HORA) / 60000);
+    const ultimaMax = Math.max(0, ...bags.flatMap((b) => b.nodes.map((n) => n.ultimaTs || 0)));
+    const ultimaRecepcion = ultimaMax ? 'última lectura hace ' + haceTxt(Date.now() - ultimaMax) : 'sin lecturas todavía';
 
     // ---- inicio de sesión: el servidor valida y envía el código por correo ----
     const A = S.auth;
@@ -590,6 +613,7 @@ export default class App extends React.Component {
       self._token = r.data.token;
       setAuth({ enviando: false, user: r.data.email, token: r.data.token, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' });
       self.cargarTodo();
+      self.conectarEventos();
     };
     const volverLogin = () => setAuth({ paso: 'login', code: '', err: '', aviso: '' });
     const cerrarSesion = async () => {
@@ -599,7 +623,7 @@ export default class App extends React.Component {
     const restan = Math.max(0, A.vence - Date.now());
 
     return {
-      bagName: bo.name, scopeLabel, nextIn,
+      bagName: bo.name, scopeLabel, ultimaRecepcion,
       logueado: !!A.user, usuario: A.user || '', avisoApp: S.avisoApp, nuevoNodo: S.nuevoNodo, onNuevoNodo, onNuevoNodoKey,
       avisosList, preferenciasList, noLeidos: S.noLeidos, avisosAbiertos: S.avisosAbiertos,
       menuAbierto: S.menuAbierto,
@@ -984,7 +1008,7 @@ export default class App extends React.Component {
       <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "#4F6459" }}>
       <span className="pulse" style={{ width: "8px", height: "8px", borderRadius: "999px", background: "#005A36" }} aria-hidden="true">
       </span>
-      Lecturas cada 30 min · próxima en {v.nextIn} min
+      Datos de la central · {v.ultimaRecepcion}
       </span>
       <div role="group" aria-label="Rango de tiempo" style={{ display: "inline-flex", padding: "4px", gap: "4px", background: "#FAF6E9", border: "1px solid #DCE5E0", borderRadius: "10px" }}>
       {v.rangeList.map((r, $index) => (<React.Fragment key={$index}>
@@ -1196,6 +1220,9 @@ export default class App extends React.Component {
       {nd.statusLabel}
       </span>
       </div>
+      <p style={{ margin: "0", fontSize: "12px", color: "#4F6459" }}>
+      {nd.ultimaTexto}
+      </p>
       <ul style={{ listStyle: "none", margin: "0", padding: "0", display: "flex", flexDirection: "column", gap: "6px" }}>
       {nd.rows.map((r, $index) => (<React.Fragment key={$index}>
       <li style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
@@ -1440,7 +1467,7 @@ export default class App extends React.Component {
       </>)}
       <section aria-label="Origen de los datos" style={{ padding: "16px 20px", borderRadius: "12px", border: "1px dashed #B9CCC2", marginTop: "auto" }}>
       <p style={{ margin: "0", fontSize: "13px", color: "#4F6459" }}>
-      Los valores llegan desde los nodos cada 30 minutos. Las alertas saltan al instante y quedan hasta que las reconozcas.
+      La central manda los datos cada 30 segundos. Las alertas saltan al instante y quedan hasta que las reconozcas. Las alertas saltan al instante y quedan hasta que las reconozcas.
       </p>
       </section>
       </main>

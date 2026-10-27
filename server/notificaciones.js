@@ -24,7 +24,7 @@ export function textoDeAlerta(a) {
   return { titulo, detalle };
 }
 
-export function crearNotificador({ repo, canales = [] }) {
+export function crearNotificador({ repo, canales = [], bus = null }) {
   // Revisa las alertas pendientes y crea los avisos. `ahora` se puede pasar para probar la demora.
   function procesar(ahora = Date.now()) {
     const pendientes = repo.alertasPorNotificar(ahora - DEMORA_ATENCION);
@@ -33,6 +33,7 @@ export function crearNotificador({ repo, canales = [] }) {
       const { titulo, detalle } = textoDeAlerta(a);
       for (const email of repo.usuariosQueSiguen(a.silobolsa_id)) {
         repo.crearAviso(email, a.id, ahora);
+        if (bus) bus.emitirA(email, 'aviso', { id: a.id, nivel: a.nivel, titulo, detalle });
         for (const c of canales) {
           // Un canal caído no frena a los demás ni al resto del proceso.
           Promise.resolve()

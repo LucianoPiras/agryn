@@ -6,6 +6,7 @@ import express from 'express';
 import { VARIABLES, evaluar } from './umbrales.js';
 import { RANGOS, serie } from './serie.js';
 import { PATRONES, etiquetaVariable } from './patrones.js';
+import { crearBus } from './eventos.js';
 
 const descripcionDe = (variable) => (PATRONES[variable] ? PATRONES[variable].descripcion : null);
 
@@ -15,7 +16,7 @@ const SESSION_TTL = 12 * 60 * 60 * 1000;
 const MAX_INTENTOS = 3;
 const MAX_LOTE = 500;
 
-export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, notificador, dist = path.join(here, '..', 'dist') }) {
+export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, notificador, bus = crearBus(), dist = path.join(here, '..', 'dist') }) {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
 
@@ -257,8 +258,8 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
     return Object.keys(v).length ? v : null;
   }
 
-  app.post('/api/gateway/lecturas', (req, res) => {
-    if (!gatewayKey || req.get('X-Api-Key') !== gatewayKey) return res.status(401).json({ error: 'Clave de gateway inválida.' });
+  // Lecturas de los nodos: las mandan el gateway LoRa o la central (cada una con su clave).
+  const recibirLecturas = (req, res) => {
     const lote = Array.isArray(req.body) ? req.body : [req.body];
     if (lote.length === 0 || lote.length > MAX_LOTE) return res.status(400).json({ error: 'Enviá entre 1 y ' + MAX_LOTE + ' lecturas por pedido.' });
 
@@ -284,7 +285,17 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
     });
     // Las críticas se avisan ya; las de atención quedan para el ciclo de avisos si siguen sin reconocerse.
     if (notificador) notificador.procesar();
+    if (aceptadas) bus.emitirATodos('datos', { aceptadas });
+    if (alertasNuevas) bus.emitirATodos('alerta', { nuevas: alertasNuevas });
     res.status(rechazadas.length === lote.length ? 422 : 200).json({ aceptadas, duplicadas, rechazadas, alertas_nuevas: alertasNuevas });
+  };
+  app.post('/api/gateway/lecturas', (req, res) => {
+    if (!gatewayKey || req.get('X-Api-Key') !== gatewayKey) return res.status(401).json({ error: 'Clave de gateway inválida.' });
+    recibirLecturas(req, res);
+  });
+  app.post('/api/central/lecturas', (req, res) => {
+    if (!centralKey || req.get('X-Api-Key') !== centralKey) return res.status(401).json({ error: 'Clave de central inválida.' });
+    recibirLecturas(req, res);
   });
 
   // ---------- central: anomalías que encuentra el ESP32 central ----------
@@ -313,7 +324,22 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
       });
     });
     if (notificador) notificador.procesar();
+    if (nuevas) bus.emitirATodos('alerta', { nuevas });
     res.status(rechazadas.length === lote.length ? 422 : 200).json({ nuevas, rechazadas });
+  });
+
+  // ---------- tiempo real ----------
+  // La pantalla pide un ticket con su sesión y abre la conexión con el ticket (un solo uso, un minuto).
+  app.post('/api/eventos/ticket', requiereSesion, (req, res) => {
+    res.json({ ticket: bus.crearTicket(req.usuario) });
+  });
+  app.get('/api/eventos', (req, res) => {
+    const email = bus.usarTicket(String(req.query.ticket || ''));
+    if (!email) return res.status(401).json({ error: 'Ticket inválido o vencido.' });
+    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.flushHeaders();
+    res.write('event: listo\ndata: {}\n\n');
+    bus.conectar(email, res);
   });
 
   // El router de la app va después del gateway: su clave es distinta de la sesión.

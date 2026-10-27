@@ -61,13 +61,20 @@ Notas:
 - El correo de ingreso sale por Gmail SMTP. Conviene probarlo apenas se publique, porque depende de que el servicio pueda salir a `smtp.gmail.com`.
 - Cada commit a `main` redespliega la app.
 
-**Anomalías del ESP32 central.** La central procesa las mediciones (cada 3 segundos) y, si encuentra una anomalía, la manda a la app con `POST /api/central/anomalias` y la clave `AGRYN_CENTRAL_KEY` (distinta a la del gateway). Cada anomalía lleva `device_id`, `tipo` (`fermentacion`, `rotura` o una variable), `nivel` (`crit` por defecto, o `warn`) y, opcionalmente, `valor` y `ts`. La app no vuelve a analizar las mediciones: solo registra la alerta y avisa. Si el nodo ya tiene una alerta de ese tipo sin reconocer, no se repite.
+**Arquitectura.** Cada silobolsa manda sus datos por LoRa a una **central** local. Esa central se comunica con otra central que tiene internet y llega a la app. La app no analiza mediciones: recibe datos y anomalías ya procesados.
+
+- **Datos cada 30 segundos:** la central manda lotes a `POST /api/central/lecturas` (clave `AGRYN_CENTRAL_KEY`). El formato es el mismo que el del gateway.
+- **Anomalías en 3 segundos:** la central manda cada anomalía a `POST /api/central/anomalias` (misma clave). La app crea la alerta crítica (o de atención, según `nivel`), avisa y la empuja a la pantalla abierta en milisegundos.
+- **Tiempo real:** la pantalla abre una conexión de eventos (`GET /api/eventos`) con un ticket de un solo uso, que pide con su sesión. Por la conexión llegan `aviso`, `alerta` y `datos`.
+- **Corte de datos:** si un nodo que ya reportó no manda nada en 3 minutos, aparece la alerta crítica «Sin datos de la central». Se revisa cada 30 segundos.
+
+Las anomalías se mandan con `POST /api/central/anomalias` y tienen este formato: `device_id`, `tipo` (`fermentacion`, `rotura` o una variable), `nivel` (`crit` por defecto, o `warn`) y, opcionalmente, `valor` y `ts`. Si el nodo ya tiene una alerta de ese tipo sin reconocer, no se repite.
 
 **Notificaciones de alertas críticas.** Llegan por tres caminos: el banner rojo de la app, el centro de avisos y el correo. Si el usuario activa las notificaciones del navegador, también aparecen como notificación del sistema mientras la app está abierta. La app no puede saltear las notificaciones que el usuario o el navegador tienen desactivadas. WhatsApp y Telegram todavía no están conectados: necesitan sus credenciales y el acceso a sus servicios desde el servidor.
 
 **Celular.** En pantallas chicas la barra lateral se convierte en un menú deslizable que se abre con "Menú", y los avisos se abren con "Avisos". Todos los controles táctiles miden al menos 44 px.
 
-Pruebas: `npm test`.
+Pruebas: `npm test`. Incluyen la latencia de una anomalía hasta la pantalla (menos de 3 segundos; en la prueba, unos milisegundos).
 
 ## Correo y servidor
 

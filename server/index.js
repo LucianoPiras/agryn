@@ -5,6 +5,7 @@
 //   GMAIL_APP_PASSWORD  contraseña de aplicación de esa cuenta (no es la contraseña normal)
 //   AGRYN_USUARIOS      lista JSON de usuarios, por ejemplo [{"email":"...","password":"..."}]
 //   AGRYN_GATEWAY_KEY   clave que manda el gateway LoRa en el header X-Api-Key
+//   AGRYN_CENTRAL_KEY   clave del ESP32 central, para mandar anomalías (otra clave, distinta)
 //   AGRYN_DB            archivo SQLite (por defecto data/agryn.db)
 //   AGRYN_MAIL=json     modo de prueba: no envía correos y muestra el código en la consola
 //   PORT                puerto del servidor (3001 por defecto)
@@ -60,6 +61,7 @@ const app = crearApp({
   transporte,
   remitente: REMITENTE,
   gatewayKey: process.env.AGRYN_GATEWAY_KEY || '',
+  centralKey: process.env.AGRYN_CENTRAL_KEY || '',
   notificador
 });
 

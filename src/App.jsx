@@ -65,13 +65,15 @@ export default class App extends React.Component {
     super(props);
     this.state = {
       bags: [], datos: {}, alertas: [], view: 'overview', range: '24h', bag: null, node: null, cursor: null, tick: 0,
-      nuevoNodo: '', avisoApp: '', avisos: [], noLeidos: 0, avisosAbiertos: false, preferencias: [], umbrales: VARS, umbralesAbiertos: false, umbralEdit: {}, form: { open: false, name: '', content: 'Sin definir' },
+      nuevoNodo: '', avisoApp: '', avisos: [], noLeidos: 0, avisosAbiertos: false, preferencias: [], menuAbierto: false, umbrales: VARS, umbralesAbiertos: false, umbralEdit: {}, form: { open: false, name: '', content: 'Sin definir' },
       del: { step: null, pw: '', err: false }, confirm: null, confirmAt: 0,
       auth: { user: null, token: null, enviando: false, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' }
     };
     this._token = null;
   }
   componentDidMount() {
+    this._k = (e) => { if (e.key === 'Escape') this.setState({ menuAbierto: false, avisosAbiertos: false }); };
+    window.addEventListener('keydown', this._k);
     this._t = setInterval(() => this.setState((s) => ({ tick: s.tick + 1 })), 1000);
     this._r = setInterval(() => { if (this.state.auth.user) this.cargarTodo(); }, 60 * 1000);
     // Las alertas críticas no pueden esperar un minuto: avisos y alertas se revisan cada 15 segundos.
@@ -86,7 +88,7 @@ export default class App extends React.Component {
       });
     }
   }
-  componentWillUnmount() { clearInterval(this._t); clearInterval(this._r); clearInterval(this._a); clearTimeout(this._g); clearTimeout(this._e); }
+  componentWillUnmount() { window.removeEventListener('keydown', this._k); clearInterval(this._t); clearInterval(this._r); clearInterval(this._a); clearTimeout(this._g); clearTimeout(this._e); }
   componentDidUpdate(prevProps, prevState) {
     if (prevState.range !== this.state.range && this.state.auth.user) this.cargarSeries(this.state.bags);
   }
@@ -104,7 +106,7 @@ export default class App extends React.Component {
     try { window.localStorage.removeItem(SESION); } catch (e) { /* ignorar */ }
     this.setState((s) => ({
       auth: Object.assign({}, s.auth, { user: null, token: null, paso: 'login', email: '', pw: '', code: '', err: '', aviso: '' }),
-      bags: [], datos: {}, alertas: [], avisos: [], noLeidos: 0, avisosAbiertos: false, preferencias: [], umbralesAbiertos: false, bag: null, node: null
+      bags: [], datos: {}, alertas: [], avisos: [], noLeidos: 0, avisosAbiertos: false, preferencias: [], menuAbierto: false, umbralesAbiertos: false, bag: null, node: null
     }));
   }
   error(msg) {
@@ -600,6 +602,9 @@ export default class App extends React.Component {
       bagName: bo.name, scopeLabel, nextIn,
       logueado: !!A.user, usuario: A.user || '', avisoApp: S.avisoApp, nuevoNodo: S.nuevoNodo, onNuevoNodo, onNuevoNodoKey,
       avisosList, preferenciasList, noLeidos: S.noLeidos, avisosAbiertos: S.avisosAbiertos,
+      menuAbierto: S.menuAbierto,
+      toggleMenu: () => self.setState((s) => ({ menuAbierto: !s.menuAbierto })),
+      cerrarMenu: () => self.setState({ menuAbierto: false }),
       permisoAvisos: typeof Notification === 'undefined' ? 'no-disponible' : Notification.permission,
       pedirPermisoAvisos: () => { Notification.requestPermission(); },
       umbralesRows, umbralesAbiertos: S.umbralesAbiertos,
@@ -610,7 +615,14 @@ export default class App extends React.Component {
           umbralEdit: Object.fromEntries(S.umbrales.map((v) => [v.key, { min: String(v.min).replace('.', ','), max: String(v.max).replace('.', ','), err: '', ok: '' }]))
         });
       },
-      toggleAvisos: () => { const abrir = !S.avisosAbiertos; self.setState({ avisosAbiertos: abrir }); if (abrir) self.cargarAvisos(); },
+      toggleAvisos: () => {
+        const abrir = !S.avisosAbiertos;
+        self.setState({ avisosAbiertos: abrir, menuAbierto: false });
+        if (abrir) {
+          self.cargarAvisos();
+          setTimeout(() => { const el = document.getElementById('centro-avisos'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80);
+        }
+      },
       leerTodos: () => self.leerTodosAvisos(),
       loginIsCodigo: A.paso === 'codigo', loginEmail: A.email, loginPw: A.pw, loginCodigo: A.code,
       loginDestino: A.email, loginErr: A.err, loginAviso: A.aviso, enviando: A.enviando,
@@ -712,11 +724,25 @@ export default class App extends React.Component {
     const v = this.renderVals();
     if (!v.logueado) return this.renderLogin(v);
     return (
-      <div style={{ display: "flex", flexWrap: "wrap", minHeight: "100vh", background: "#F3F0E4", color: "#0F2A1F", fontFamily: "'Montserrat', system-ui, sans-serif", fontSize: "14px", lineHeight: "1.45" }}>
+      <div className="app" style={{ display: "flex", flexWrap: "wrap", minHeight: "100vh", background: "#F3F0E4", color: "#0F2A1F", fontFamily: "'Montserrat', system-ui, sans-serif", fontSize: "14px", lineHeight: "1.45" }}>
+      <header className="barra">
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: "0" }}>
+      <img src="/logos/agryn-hoja-reversa.png" alt="" aria-hidden="true" style={{ width: "28px", height: "28px", flex: "none" }} />
+      <span style={{ font: "700 16px/1 'Inter', sans-serif", letterSpacing: "0.04em" }}>AGRYN</span>
+      </div>
+      <div style={{ display: "flex", gap: "8px" }}>
+      <button type="button" className="btn" onClick={v.toggleAvisos} aria-expanded={v.avisosAbiertos} style={{ background: "transparent", color: "#FAF6E9", borderColor: "rgba(250,246,233,0.42)" }}>
+      {v.noLeidos ? "Avisos (" + v.noLeidos + ")" : "Avisos"}
+      </button>
+      <button type="button" className="btn" onClick={v.toggleMenu} aria-expanded={v.menuAbierto} aria-controls="menu-silobolsas" style={{ background: "transparent", color: "#FAF6E9", borderColor: "rgba(250,246,233,0.42)" }}>
+      Menú
+      </button>
+      </div>
+      </header>
       <div className="hook" aria-hidden="true">
       <img className="tile" src="/logos/agryn-hoja-reversa.png" alt="" style={{ display: "block", width: "min(210px, 40vw)", height: "auto" }} />
       </div>
-      <aside className="side" style={{ flex: "1 1 260px", minWidth: "0", boxSizing: "border-box", padding: "24px 16px", background: "#005A36", color: "#FAF6E9", display: "flex", flexDirection: "column", gap: "28px" }}>
+      <aside id="menu-silobolsas" className={"side" + (v.menuAbierto ? " abierto" : "")} onClick={(e) => { if (e.target.closest && e.target.closest('button')) this.setState({ menuAbierto: false }); }} style={{ flex: "1 1 260px", minWidth: "0", boxSizing: "border-box", padding: "24px 16px", background: "#005A36", color: "#FAF6E9", display: "flex", flexDirection: "column", gap: "28px" }}>
       <div className="logo-card bleed">
       <img src="/logos/agryn-logo.png" alt="AGRYN, inteligencia en cada bolsa" />
       </div>
@@ -832,6 +858,7 @@ export default class App extends React.Component {
       </button>
       </div>
       </aside>
+      <div className={"menu-fondo" + (v.menuAbierto ? " abierto" : "")} onClick={v.cerrarMenu} aria-hidden="true" />
       <main style={{ flex: "999 1 560px", minWidth: "0", boxSizing: "border-box", padding: "clamp(16px, 3vw, 32px)", display: "flex", flexDirection: "column", gap: "24px" }}>
       {v.avisoApp && (<div role="alert" style={{ padding: "10px 12px", borderRadius: "8px", background: "#FDECE8", border: "1px solid #C8321F", color: "#8F2113", fontSize: "13px", fontWeight: "600" }}>
       {v.avisoApp}
@@ -877,7 +904,7 @@ export default class App extends React.Component {
       </div>
       </React.Fragment>))}
       </section>)}
-      {v.avisosAbiertos && (<section aria-label="Centro de avisos" style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px 20px", borderRadius: "12px", background: "#FAF6E9", border: "1px solid #DCE5E0" }}>
+      {v.avisosAbiertos && (<section id="centro-avisos" aria-label="Centro de avisos" style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px 20px", borderRadius: "12px", background: "#FAF6E9", border: "1px solid #DCE5E0" }}>
       <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
       <h2 style={{ margin: "0", font: "700 20px/1.1 'Inter', sans-serif", letterSpacing: "-0.02em" }}>
       Centro de avisos
@@ -1186,7 +1213,7 @@ export default class App extends React.Component {
       <button className="btn" onClick={nd.pick} aria-pressed={nd.pressed} style={{ background: `${nd.btnBg}`, color: `${nd.btnFg}` }}>
       {nd.btnLabel}
       </button>
-      <button className="btn" onClick={nd.remove} disabled={nd.cantRemove} style={{ minHeight: "36px", borderColor: "transparent", background: "transparent", fontSize: "12px", color: `${nd.removeFg}` }}>
+      <button className="btn" onClick={nd.remove} disabled={nd.cantRemove} style={{ borderColor: "transparent", background: "transparent", fontSize: "12px", color: `${nd.removeFg}` }}>
       {nd.removeLabel}
       </button>
       </article>

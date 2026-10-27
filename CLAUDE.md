@@ -29,7 +29,7 @@ Todo el texto de la interfaz va en español rioplatense (voseo: "Cambialo", "Pro
 
 ## Pendientes pensados
 - Firmware del ESP32 gateway LoRa (la API ya recibe lecturas en `POST /api/gateway/lecturas`).
-- Validar con el equipo técnico los patrones de fermentación y rotura (`server/patrones.js`): hoy son reglas de ejemplo.
+- Las mediciones y su análisis (fermentación, rotura) los hace el ESP32 central, que manda las anomalías a `POST /api/central/anomalias`. La app no analiza mediciones.
 - WhatsApp y Telegram como canales de aviso (necesitan credenciales y acceso a sus servicios).
 - Definir umbrales reales por tipo de grano (hoy se editan desde la app).
 - Notificaciones de alerta fuera de la app (push, mail o WhatsApp).

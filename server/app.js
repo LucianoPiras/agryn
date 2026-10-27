@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { VARIABLES, evaluar } from './umbrales.js';
 import { RANGOS, serie } from './serie.js';
-import { VENTANA, PATRONES, detectarPatrones, etiquetaVariable } from './patrones.js';
+import { PATRONES, etiquetaVariable } from './patrones.js';
 
 const descripcionDe = (variable) => (PATRONES[variable] ? PATRONES[variable].descripcion : null);
 
@@ -15,7 +15,7 @@ const SESSION_TTL = 12 * 60 * 60 * 1000;
 const MAX_INTENTOS = 3;
 const MAX_LOTE = 500;
 
-export function crearApp({ repo, transporte, gatewayKey, remitente, notificador, dist = path.join(here, '..', 'dist') }) {
+export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, notificador, dist = path.join(here, '..', 'dist') }) {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
 
@@ -275,12 +275,7 @@ export function crearApp({ repo, transporte, gatewayKey, remitente, notificador,
         const ts = typeof it.ts === 'number' && Number.isFinite(it.ts) ? Math.round(it.ts) : Date.now();
         if (!repo.guardarLectura(nodo.id, ts, valores)) return duplicadas++;
         aceptadas++;
-        const avisar = [
-          ...evaluar(valores, reglas),
-          // Patrones: se miran todos los sensores del tramo reciente. Son urgentes: van como crítica.
-          ...detectarPatrones(repo.lecturasDesde(nodo.id, ts - VENTANA).filter((l) => l.ts <= ts)).map((p) => ({ ...p, nivel: 'crit' }))
-        ];
-        for (const a of avisar) {
+        for (const a of evaluar(valores, reglas)) {
           if (repo.alertaActiva(nodo.id, a.variable)) continue;
           repo.crearAlerta(nodo.id, a.variable, a.valor, a.nivel, ts);
           alertasNuevas++;
@@ -290,6 +285,35 @@ export function crearApp({ repo, transporte, gatewayKey, remitente, notificador,
     // Las críticas se avisan ya; las de atención quedan para el ciclo de avisos si siguen sin reconocerse.
     if (notificador) notificador.procesar();
     res.status(rechazadas.length === lote.length ? 422 : 200).json({ aceptadas, duplicadas, rechazadas, alertas_nuevas: alertasNuevas });
+  });
+
+  // ---------- central: anomalías que encuentra el ESP32 central ----------
+  // La central procesa las mediciones y manda acá solo lo que encuentra. La app no vuelve a analizarlas.
+  // Cada anomalía: { device_id, tipo, nivel?: 'crit' | 'warn', valor?, ts? (ms) }.
+  // tipo: 'fermentacion', 'rotura', o una variable ('ph', 'temp', 'hum', 'co2').
+  app.post('/api/central/anomalias', (req, res) => {
+    if (!centralKey || req.get('X-Api-Key') !== centralKey) return res.status(401).json({ error: 'Clave de central inválida.' });
+    const lote = Array.isArray(req.body) ? req.body : [req.body];
+    if (lote.length === 0 || lote.length > MAX_LOTE) return res.status(400).json({ error: 'Enviá entre 1 y ' + MAX_LOTE + ' anomalías por pedido.' });
+    const tiposValidos = new Set([...VARIABLES.map((v) => v.key), ...Object.keys(PATRONES)]);
+    const rechazadas = [];
+    let nuevas = 0;
+    repo.transaccion(() => {
+      lote.forEach((it, indice) => {
+        const deviceId = typeof it?.device_id === 'string' ? it.device_id.trim() : '';
+        const nodo = deviceId && repo.nodoPorDevice(deviceId);
+        if (!nodo) return rechazadas.push({ indice, motivo: 'nodo desconocido' });
+        if (!tiposValidos.has(it.tipo)) return rechazadas.push({ indice, motivo: 'tipo desconocido' });
+        if (repo.alertaActiva(nodo.id, it.tipo)) return; // ya hay una sin reconocer: no se repite
+        const nivel = it.nivel === 'warn' ? 'warn' : 'crit';
+        const valor = typeof it.valor === 'number' && Number.isFinite(it.valor) ? it.valor : 0;
+        const ts = typeof it.ts === 'number' && Number.isFinite(it.ts) ? Math.round(it.ts) : Date.now();
+        repo.crearAlerta(nodo.id, it.tipo, valor, nivel, ts);
+        nuevas++;
+      });
+    });
+    if (notificador) notificador.procesar();
+    res.status(rechazadas.length === lote.length ? 422 : 200).json({ nuevas, rechazadas });
   });
 
   // El router de la app va después del gateway: su clave es distinta de la sesión.

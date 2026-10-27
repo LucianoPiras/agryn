@@ -61,13 +61,11 @@ Notas:
 - El correo de ingreso sale por Gmail SMTP. Conviene probarlo apenas se publique, porque depende de que el servicio pueda salir a `smtp.gmail.com`.
 - Cada commit a `main` redespliega la app.
 
-**Patrones de riesgo** (`server/patrones.js`). Cada lectura se compara con las de las últimas 2 horas, con todos los sensores juntos:
-- **Posible fermentación:** la temperatura sube al menos 3 °C y el CO₂ al menos 0,5 puntos.
-- **Posible rotura o ingreso de aire:** el CO₂ baja al menos 0,5 puntos y la humedad sube al menos 1 punto.
+**Anomalías del ESP32 central.** La central procesa las mediciones (cada 3 segundos) y, si encuentra una anomalía, la manda a la app con `POST /api/central/anomalias` y la clave `AGRYN_CENTRAL_KEY` (distinta a la del gateway). Cada anomalía lleva `device_id`, `tipo` (`fermentacion`, `rotura` o una variable), `nivel` (`crit` por defecto, o `warn`) y, opcionalmente, `valor` y `ts`. La app no vuelve a analizar las mediciones: solo registra la alerta y avisa. Si el nodo ya tiene una alerta de ese tipo sin reconocer, no se repite.
 
-Estos patrones son **reglas de ejemplo**, no un diagnóstico: hay que validarlos con el equipo técnico con datos reales. Cuando se cumplen, la alerta es crítica y el aviso sale al instante, sin esperar la demora de 30 minutos.
+**Notificaciones de alertas críticas.** Llegan por tres caminos: el banner rojo de la app, el centro de avisos y el correo. Si el usuario activa las notificaciones del navegador, también aparecen como notificación del sistema mientras la app está abierta. La app no puede saltear las notificaciones que el usuario o el navegador tienen desactivadas. WhatsApp y Telegram todavía no están conectados: necesitan sus credenciales y el acceso a sus servicios desde el servidor.
 
-**Notificaciones de alertas críticas.** Llegan por tres caminos: el banner rojo de la app, el aviso del centro de avisos y el correo. Si el usuario activa las notificaciones del navegador, también aparecen como notificación del sistema mientras la app está abierta. La app no puede saltear las notificaciones que el usuario o el navegador tienen desactivadas. WhatsApp y Telegram todavía no están conectados: necesitan sus credenciales y el acceso a sus servicios desde el servidor.
+**Celular.** En pantallas chicas la barra lateral se convierte en un menú deslizable que se abre con "Menú", y los avisos se abren con "Avisos". Todos los controles táctiles miden al menos 44 px.
 
 Pruebas: `npm test`.
 
@@ -81,6 +79,7 @@ Variables de entorno (en un archivo `.env` que no se sube al repo, o en el panel
 GMAIL_USER=Agryn.silobolsa@gmail.com
 GMAIL_APP_PASSWORD=...        # contraseña de aplicación de esa cuenta (requiere verificación en dos pasos)
 AGRYN_USUARIOS=[{"email":"...","password":"..."}]   # solo la primera vez: después los usuarios se administran en la base
+AGRYN_CENTRAL_KEY=...                                       # clave del ESP32 central (anomalías)
 ```
 
 ```bash

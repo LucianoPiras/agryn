@@ -68,7 +68,7 @@ test('una alerta de atención espera la demora antes de avisar', async () => {
   const antes = (await llamar('GET', '/api/avisos', { token: tokenAna })).data.no_leidos;
 
   // Temperatura un poco fuera de rango: atención, no crítica.
-  await llamar('POST', '/api/gateway/lecturas', { cuerpo: [{ device_id: 'AVI-1', temp: 19.5 }], gateway: true });
+  await llamar('POST', '/api/gateway/lecturas', { cuerpo: [{ device_id: 'AVI-1', temp: 18.5 }], gateway: true });
   assert.equal((await llamar('GET', '/api/avisos', { token: tokenAna })).data.no_leidos, antes, 'no avisa todavía');
   assert.equal(notificador.procesar(), 0, 'dentro de la demora no hay nada para avisar');
 

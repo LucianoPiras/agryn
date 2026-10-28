@@ -2,7 +2,7 @@ import React from 'react';
 
 const VARS = [
   { key: 'ph',   name: 'pH',          unit: '',   dec: 2, min: 5.5, max: 7.5 },
-  { key: 'temp', name: 'Temperatura', unit: '°C', dec: 1, min: 17,  max: 19 },
+  { key: 'temp', name: 'Temperatura', unit: '°C', dec: 1, min: 16,  max: 18 },
   { key: 'hum',  name: 'Humedad',     unit: '%',  dec: 1, min: 11,  max: 13 },
   { key: 'co2',  name: 'CO₂',         unit: '%',  dec: 2, min: 5.5, max: 7.5 }
 ];

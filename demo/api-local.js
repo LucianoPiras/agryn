@@ -63,7 +63,7 @@ function semilla() {
   const rotura = [];
   for (let i = 0; i < 25; i++) {
     const ts = ahora - (24 - i) * 5 * MINUTO;
-    rotura.push({ ts, ph: 6.5, temp: 18.2, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Number((6.5 - (4.5 * i) / 24).toFixed(2)) });
+    rotura.push({ ts, ph: 6.5, temp: 17.0, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Number((6.5 - (4.5 * i) / 24).toFixed(2)) });
   }
   lecturas[5] = lecturas[5].filter((l) => l.ts < ahora - 2 * HORA).concat(rotura);
   const alertas = [{ id: 1, nodo_id: 5, variable: 'rotura', valor: 1.3, nivel: 'crit', ts: ahora, reconocida: 0, creada: ahora, notificada: 1, diagnostico: diagnosticar(ventanaEn(lecturas[5], ahora)) }];
@@ -98,7 +98,10 @@ function ingresarLectura(nodoId, ts, valores) {
     if (estado.alertas.some((x) => x.nodo_id === nodoId && x.variable === a.variable && !x.reconocida)) continue;
     const alerta = { id: nuevoId(estado.alertas), nodo_id: nodoId, variable: a.variable, valor: a.valor, nivel: a.nivel, ts, reconocida: 0, creada: Date.now(), notificada: 1, diagnostico: diagnosticarNodo(nodoId, ts) };
     estado.alertas.push(alerta);
-    if (a.nivel === 'crit') estado.avisos.push({ id: nuevoId(estado.avisos), usuario: USUARIO, alerta_id: alerta.id, creada: Date.now(), leido: 0 });
+    if (a.nivel === 'crit') {
+      estado.avisos.push({ id: nuevoId(estado.avisos), usuario: USUARIO, alerta_id: alerta.id, creada: Date.now(), leido: 0 });
+      iniciarLiberacion(nodoDe(nodoId).silo);
+    }
   }
 }
 
@@ -272,7 +275,7 @@ function emitir(nombre, datos = {}) {
 
 // Simula lo que manda la central: un patrón en las últimas 2 horas y una alarma en un nodo sin alerta activa.
 const PATRONES_SIMULADOS = {
-  rotura: (i) => ({ ph: 6.5, temp: 18.2, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Number((6.5 - (4.5 * i) / 24).toFixed(2)) }),
+  rotura: (i) => ({ ph: 6.5, temp: 17.0, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Number((6.5 - (4.5 * i) / 24).toFixed(2)) }),
   fermentacion: (i) => ({ ph: 6.5, temp: Number((18 + (8.4 * i) / 24).toFixed(1)), hum: 12.5, co2: Number((6.0 + (4.5 * i) / 24).toFixed(2)) })
 };
 export function simularAnomalia(tipo) {
@@ -285,25 +288,16 @@ export function simularAnomalia(tipo) {
   const alerta = { id: nuevoId(estado.alertas), nodo_id: nodo.id, variable: tipo, valor: nuevas.at(-1)[tipo === 'rotura' ? 'co2' : 'temp'], nivel: 'crit', ts: ahora, reconocida: 0, creada: ahora, notificada: 1, diagnostico: diagnosticar(ventanaEn(estado.lecturas[nodo.id], ahora)) };
   estado.alertas.push(alerta);
   estado.avisos.push({ id: nuevoId(estado.avisos), usuario: USUARIO, alerta_id: alerta.id, creada: ahora, leido: 0 });
+  iniciarLiberacion(nodoDe(nodo.id).silo);
   guardar();
   emitir('alerta', { nuevas: 1 });
   emitir('aviso', { id: alerta.id });
   const info = nodoDe(nodo.id);
   return { ok: true, silo: info.silo.nombre, nodo: info.nodo.nombre, titulo: (ETIQUETAS[tipo] || tipo) };
 }
-// Acción de la demostración: liberar CO₂ de la silobolsa con la alarma crítica más reciente.
-// Reconoce la alarma y, en vez de saltar a un valor normal, los datos del nodo vuelven al rango de a poco.
-const DURACION_RECUPERACION = 90 * 1000;
-const PASO_RECUPERACION = 3 * 1000;
-const recuperaciones = {};
-let temporizadorRecuperacion = null;
-
-export function liberarCO2() {
-  const alerta = estado.alertas.filter((a) => a.nivel === 'crit' && !a.reconocida).sort((x, y) => y.ts - x.ts)[0];
-  if (!alerta) return { ok: false, mensaje: 'No hay una alarma crítica sin reconocer.' };
-  alerta.reconocida = 1;
-  // Liberar CO₂ actúa sobre toda la silobolsa: todos sus nodos vuelven al objetivo.
-  const silo = nodoDe(alerta.nodo_id).silo;
+// La central libera CO₂ sola cuando hay una alarma crítica: todos los nodos de la silobolsa
+// vuelven al objetivo, de a poco. Descartar la alarma no cambia nada de esto.
+export function iniciarLiberacion(silo) {
   for (const nodo of silo.nodos) {
     const ultima = lecturas(nodo.id).at(-1);
     if (!ultima) continue;
@@ -311,10 +305,17 @@ export function liberarCO2() {
   }
   if (!temporizadorRecuperacion) temporizadorRecuperacion = setInterval(avanzarRecuperaciones, PASO_RECUPERACION);
   guardar();
-  emitir('alerta', { reconocida: alerta.id });
-  const info = nodoDe(alerta.nodo_id);
-  return { ok: true, silo: info.silo.nombre, nodo: info.nodo.nombre };
 }
+
+// ¿Hay algún nodo volviendo al objetivo ahora mismo? Lo usa el cartel de la alarma.
+export function liberandoCO2() {
+  return Object.keys(recuperaciones).length > 0;
+}
+
+const DURACION_RECUPERACION = 90 * 1000;
+const PASO_RECUPERACION = 3 * 1000;
+const recuperaciones = {};
+let temporizadorRecuperacion = null;
 
 // Cada paso mueve las lecturas del nodo un poco más hacia el centro del rango habitual.
 function avanzarRecuperaciones() {
@@ -358,6 +359,8 @@ export function instalarApiDemo() {
     addEventListener(nombre, fn) { (this.listeners[nombre] = this.listeners[nombre] || []).push(fn); }
     close() { oyentes.splice(oyentes.indexOf(this), 1); }
   };
+  // Las alarmas críticas que ya estaban sin descartar también están liberando CO₂.
+  for (const a of estado.alertas) if (a.nivel === 'crit' && !a.reconocida && !liberandoCO2()) iniciarLiberacion(nodoDe(a.nodo_id).silo);
   latir();
   setInterval(latir, 30 * 1000);
 }

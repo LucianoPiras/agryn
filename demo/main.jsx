@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import App from '../src/App.jsx';
 import '../src/index.css';
 import { instalarApiDemo } from './api-local.js';
-import PanelSimulador from './panel.jsx';
+import PanelSimulador, { BotonVerLiberacion } from './panel.jsx';
 import { activarCartelLiberacion } from './cartel-liberacion.js';
 
 // Las notificaciones del navegador se muestran también dentro de la página, por si el navegador
@@ -27,5 +27,6 @@ createRoot(document.getElementById('root')).render(
   <>
     <App />
     <PanelSimulador />
+    <BotonVerLiberacion />
   </>
 );

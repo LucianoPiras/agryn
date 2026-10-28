@@ -2,6 +2,20 @@
 import React, { useEffect, useState } from 'react';
 import { simularAnomalia } from './api-local.js';
 
+// Botón discreto: genera una alarma de prueba en un nodo libre para ver la liberación de CO₂ de principio a fin.
+export function BotonVerLiberacion() {
+  const tocar = () => {
+    const r = simularAnomalia('rotura');
+    if (!r.ok) return window.__agrynAviso && window.__agrynAviso('Sin nodo libre', r.mensaje);
+    if (window.__agrynAviso) window.__agrynAviso('Liberando CO₂', r.silo + ' · ' + r.nodo + ': los valores vuelven al objetivo.');
+  };
+  return (
+    <button type="button" onClick={tocar} style={{ position: 'fixed', left: 16, bottom: 16, minHeight: 44, padding: '8px 14px', borderRadius: 999, border: '1px solid rgba(15,42,31,0.35)', background: 'rgba(250,246,233,0.9)', color: '#4F6459', font: "500 13px 'Montserrat', sans-serif", cursor: 'pointer', zIndex: 40 }}>
+      Ver liberación de CO₂
+    </button>
+  );
+}
+
 const colores = { fondo: '#FAF6E9', borde: '#005A36', texto: '#0F2A1F', muted: '#4F6459', esmeralda: '#005A36', crit: '#8F2113' };
 
 const botonBase = { minHeight: 44, padding: '8px 14px', borderRadius: 10, font: "600 14px 'Inter', sans-serif", cursor: 'pointer' };

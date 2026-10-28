@@ -30,7 +30,12 @@ function actualizar() {
       linea.setAttribute('role', 'status');
       // Va justo debajo del título de la alarma y es lo primero que se lee después de él.
       linea.setAttribute('style', 'display:inline-block;align-self:flex-start;margin:10px 0 4px;padding:8px 16px;border:3px solid #FAF6E9;border-radius:12px;background:#FAF6E9;color:#B02A18;font:800 22px/1.1 Inter,system-ui,sans-serif;letter-spacing:0.01em;box-shadow:0 0 0 4px rgba(250,246,233,0.25)');
-      linea.textContent = ETIQUETA;
+      linea.append(ETIQUETA + ' ');
+      const puntos = document.createElement('span');
+      puntos.className = 'puntos';
+      puntos.setAttribute('aria-hidden', 'true');
+      for (let k = 0; k < 3; k++) { const punto = document.createElement('span'); punto.className = 'punto'; punto.textContent = '.'; puntos.appendChild(punto); }
+      linea.appendChild(puntos);
       const titulo = [...columna.children].find((h) => h !== rotulo && h.textContent.includes(' · '));
       if (titulo) titulo.insertAdjacentElement('afterend', linea);
       else columna.appendChild(linea);
@@ -39,8 +44,20 @@ function actualizar() {
   }
 }
 
+// Secuencia de los tres puntos: se apaga el primero, luego el segundo, luego el tercero,
+// y cada vez que se apaga uno vuelve a encenderse el anterior.
+const SECUENCIA = [[1, 1, 1], [0, 1, 1], [0, 0, 1], [0, 0, 0], [1, 0, 0], [1, 1, 0]];
+let paso = 0;
+function moverPuntos() {
+  paso = (paso + 1) % SECUENCIA.length;
+  document.querySelectorAll('[data-liberando-co2] .puntos').forEach((grupo) => {
+    grupo.querySelectorAll('.punto').forEach((punto, k) => { punto.style.opacity = SECUENCIA[paso][k] ? '1' : '0.15'; });
+  });
+}
+
 export function activarCartelLiberacion() {
   actualizar();
   new MutationObserver(actualizar).observe(document.body, { childList: true, subtree: true });
   setInterval(actualizar, 1000);
+  setInterval(moverPuntos, 450);
 }

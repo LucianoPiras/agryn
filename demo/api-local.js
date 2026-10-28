@@ -63,7 +63,7 @@ function semilla() {
   const rotura = [];
   for (let i = 0; i < 25; i++) {
     const ts = ahora - (24 - i) * 5 * MINUTO;
-    rotura.push({ ts, ph: 6.5, temp: 18.2, hum: Number((12.6 + (2.4 * i) / 24).toFixed(1)), co2: Number((2.0 - (1.58 * i) / 24).toFixed(2)) });
+    rotura.push({ ts, ph: 6.5, temp: 18.2, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Number((6.5 - (4.5 * i) / 24).toFixed(2)) });
   }
   lecturas[5] = lecturas[5].filter((l) => l.ts < ahora - 2 * HORA).concat(rotura);
   const alertas = [{ id: 1, nodo_id: 5, variable: 'rotura', valor: 1.3, nivel: 'crit', ts: ahora, reconocida: 0, creada: ahora, notificada: 1, diagnostico: diagnosticar(ventanaEn(lecturas[5], ahora)) }];
@@ -272,8 +272,8 @@ function emitir(nombre, datos = {}) {
 
 // Simula lo que manda la central: un patrón en las últimas 2 horas y una alarma en un nodo sin alerta activa.
 const PATRONES_SIMULADOS = {
-  rotura: (i) => ({ ph: 6.5, temp: 18.2, hum: Number((12.6 + (2.4 * i) / 24).toFixed(1)), co2: Number((2.0 - (1.58 * i) / 24).toFixed(2)) }),
-  fermentacion: (i) => ({ ph: 6.5, temp: Number((18 + (8.4 * i) / 24).toFixed(1)), hum: 13.2, co2: Number((1.2 + (0.7 * i) / 24).toFixed(2)) })
+  rotura: (i) => ({ ph: 6.5, temp: 18.2, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Number((6.5 - (4.5 * i) / 24).toFixed(2)) }),
+  fermentacion: (i) => ({ ph: 6.5, temp: Number((18 + (8.4 * i) / 24).toFixed(1)), hum: 12.5, co2: Number((6.0 + (4.5 * i) / 24).toFixed(2)) })
 };
 export function simularAnomalia(tipo) {
   const ahora = Date.now();
@@ -314,8 +314,8 @@ export function liberarCO2() {
 // Cada paso mueve las lecturas del nodo un poco más hacia el centro del rango habitual.
 function avanzarRecuperaciones() {
   const ahora = Date.now();
-  // El último punto del gráfico promedia la ventana de 30 minutos: se reemplazan sus lecturas para que el valor se vea moverse.
-  const inicioVentana = Math.floor(ahora / (30 * MINUTO)) * 30 * MINUTO;
+  // El último punto del gráfico promedia los últimos 30 minutos: se reemplazan esas lecturas para que el valor se vea moverse.
+  const inicioVentana = ahora - 30 * MINUTO;
   for (const [nodoId, r] of Object.entries(recuperaciones)) {
     const f = Math.min(1, (ahora - r.inicio) / DURACION_RECUPERACION);
     const valores = {};

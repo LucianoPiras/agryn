@@ -3,8 +3,8 @@ import React from 'react';
 const VARS = [
   { key: 'ph',   name: 'pH',          unit: '',   dec: 2, min: 5.8, max: 7.2 },
   { key: 'temp', name: 'Temperatura', unit: '°C', dec: 1, min: 10,  max: 25 },
-  { key: 'hum',  name: 'Humedad',     unit: '%',  dec: 1, min: 12,  max: 14.5 },
-  { key: 'co2',  name: 'CO₂',         unit: '%',  dec: 2, min: 0.5, max: 3 }
+  { key: 'hum',  name: 'Humedad',     unit: '%',  dec: 1, min: 10,  max: 14 },
+  { key: 'co2',  name: 'CO₂',         unit: '%',  dec: 2, min: 3, max: 10 }
 ];
 const RANGES = {
   '24h': { n: 48, step: 30,  label: '24 h',    ticks: ['-24 h', '-18 h', '-12 h', '-6 h', 'Ahora'] },
@@ -462,11 +462,12 @@ export default class App extends React.Component {
         key: v.key, name: v.name, unit: v.unit,
         value: fmt(curV, v.dec), valColor: alertados.length ? C.crit : (st === 'ok' ? C.text : col(sv)),
         statusLabel: alertados.length ? 'Alerta en ' + alertados.join(', ') : (st === 'ok' ? 'Normal' : (st === 'high' ? 'Sobre el máximo' : 'Bajo el mínimo')),
-        chipBg: sv === 'ok' ? C.okBg : (sv === 'crit' ? C.critBg : C.warnBg), chipFg: col(sv),
+        chipBg: alertados.length ? C.critBg : (sv === 'ok' ? C.okBg : (sv === 'crit' ? C.critBg : C.warnBg)), chipFg: alertados.length ? C.crit : col(sv),
         border: st === 'ok' ? '#DCE5E0' : (sv === 'crit' ? 'rgba(200,50,31,0.55)' : 'rgba(161,92,0,0.5)'),
         note, noteColor,
         line, area: line ? line + 'L600 100 L0 100 Z' : '', dots,
         last: curV == null ? '' : 'M600 ' + Y(curV).toFixed(2) + ' h0', lastColor: st === 'ok' ? C.ok : '#C8321F',
+        lineColor: alertados.length ? '#C8321F' : C.ok,
         bandY: Y(v.max), bandH: Y(v.min) - Y(v.max),
         statMin: fmt(hay ? mn : null, v.dec) + unitTxt(v), statMax: fmt(hay ? mx : null, v.dec) + unitTxt(v), statAvg: fmt(hay ? sum / cuenta : null, v.dec) + unitTxt(v),
         rangeText: fmt(v.min, v.dec) + ' a ' + fmt(v.max, v.dec) + unitTxt(v),
@@ -479,6 +480,7 @@ export default class App extends React.Component {
         cursorIdx: idx, maxIdx: n - 1,
         cursorLine: 'M' + cx.toFixed(1) + ' 0 V100', cursorDot: cv == null ? '' : 'M' + cx.toFixed(1) + ' ' + Y(cv).toFixed(2) + ' h0',
         curColor: cst === 'ok' ? C.ok : '#C8321F',
+        lineColor: (nsel ? alertaDe(nsel.id, v.key) : alertados.length > 0) ? '#C8321F' : C.ok,
         curText: fmt(cv, v.dec) + unitTxt(v),
         curWhen: idx === n - 1 ? 'Última lectura' : 'Hace ' + dur((n - 1 - idx) * range.step),
         chartLabel: 'Historial de ' + v.name + ' en ' + bo.name + ', ' + scopeLabel + ', ' + range.label,
@@ -1183,7 +1185,7 @@ export default class App extends React.Component {
       <svg viewBox="0 0 600 100" preserveAspectRatio="none" style={{ position: "absolute", inset: "0", width: "100%", height: "100%" }} aria-hidden="true">
       <rect x="0" y={c.bandY} width="600" height={c.bandH} fill="rgba(0,90,54,0.08)" />
       <path d={c.area} fill="rgba(0,90,54,0.08)" />
-      <path d={c.line} fill="none" stroke="#005A36" strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      <path d={c.line} fill="none" stroke={c.lineColor} strokeWidth={c.lineColor === '#C8321F' ? 3 : 2} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
       <path d={c.dots} fill="none" stroke="#C8321F" strokeWidth="6" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
       <path d={c.last} fill="none" stroke={c.lastColor} strokeWidth="9" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
       </svg>
@@ -1388,7 +1390,7 @@ export default class App extends React.Component {
       <path d={v.d.grid} fill="none" stroke="rgba(0,90,54,0.10)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
       <path d={v.d.limitLines} fill="none" stroke="#B7791F" strokeWidth="1.5" strokeDasharray="6 5" vectorEffect="non-scaling-stroke" />
       <path d={v.d.area} fill="rgba(0,90,54,0.08)" />
-      <path d={v.d.line} fill="none" stroke="#005A36" strokeWidth="2.5" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      <path d={v.d.line} fill="none" stroke={v.d.lineColor} strokeWidth={v.d.lineColor === '#C8321F' ? 4 : 2.5} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
       <path d={v.d.dots} fill="none" stroke="#C8321F" strokeWidth="7" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
       <path d={v.d.cursorLine} fill="none" stroke="#0F2A1F" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
       <path d={v.d.cursorDot} fill="none" stroke={v.d.curColor} strokeWidth="12" strokeLinecap="round" vectorEffect="non-scaling-stroke" />

@@ -28,9 +28,12 @@ function actualizar() {
       linea = document.createElement('p');
       linea.dataset.liberandoCo2 = '1';
       linea.setAttribute('role', 'status');
-      linea.setAttribute('style', 'margin:6px 0 0;font:700 15px Inter,system-ui,sans-serif;color:#FAF6E9');
+      // Va justo debajo del título de la alarma y es lo primero que se lee después de él.
+      linea.setAttribute('style', 'display:inline-block;align-self:flex-start;margin:10px 0 4px;padding:8px 16px;border:3px solid #FAF6E9;border-radius:12px;background:#FAF6E9;color:#B02A18;font:800 22px/1.1 Inter,system-ui,sans-serif;letter-spacing:0.01em;box-shadow:0 0 0 4px rgba(250,246,233,0.25)');
       linea.textContent = ETIQUETA;
-      columna.appendChild(linea);
+      const titulo = [...columna.children].find((h) => h !== rotulo && h.textContent.includes(' · '));
+      if (titulo) titulo.insertAdjacentElement('afterend', linea);
+      else columna.appendChild(linea);
     }
     linea.style.display = liberandoCO2() ? '' : 'none';
   }

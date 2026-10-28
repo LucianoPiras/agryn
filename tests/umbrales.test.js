@@ -32,12 +32,13 @@ async function llamar(metodo, ruta, cuerpo, { sinSesion = false, gateway = false
   return { status: r.status, data: texto ? JSON.parse(texto) : null };
 }
 
-test('los umbrales arrancan con los valores de ejemplo', async () => {
+test('los umbrales arrancan con el objetivo de cada variable y una banda de 1', async () => {
   const r = await llamar('GET', '/api/umbrales');
   assert.equal(r.status, 200);
   const ph = r.data.find((u) => u.key === 'ph');
-  assert.equal(ph.min, 5.8);
-  assert.equal(ph.max, 7.2);
+  assert.equal(ph.objetivo, 6.5);
+  assert.equal(ph.min, 5.5);
+  assert.equal(ph.max, 7.5);
   assert.equal(r.data.length, 4);
 });
 

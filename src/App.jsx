@@ -1,10 +1,10 @@
 import React from 'react';
 
 const VARS = [
-  { key: 'ph',   name: 'pH',          unit: '',   dec: 2, min: 5.8, max: 7.2 },
-  { key: 'temp', name: 'Temperatura', unit: '°C', dec: 1, min: 10,  max: 25 },
-  { key: 'hum',  name: 'Humedad',     unit: '%',  dec: 1, min: 10,  max: 14 },
-  { key: 'co2',  name: 'CO₂',         unit: '%',  dec: 2, min: 3, max: 10 }
+  { key: 'ph',   name: 'pH',          unit: '',   dec: 2, min: 5.5, max: 7.5 },
+  { key: 'temp', name: 'Temperatura', unit: '°C', dec: 1, min: 17,  max: 19 },
+  { key: 'hum',  name: 'Humedad',     unit: '%',  dec: 1, min: 11,  max: 13 },
+  { key: 'co2',  name: 'CO₂',         unit: '%',  dec: 2, min: 5.5, max: 7.5 }
 ];
 const RANGES = {
   '24h': { n: 48, step: 30,  label: '24 h',    ticks: ['-24 h', '-18 h', '-12 h', '-6 h', 'Ahora'] },

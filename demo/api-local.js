@@ -17,7 +17,7 @@ const USUARIO = 'demo@agryn.test';
 const DIA = 24 * HORA;
 
 // Umbrales por defecto, los mismos que la base del servidor.
-const UMBRALES_INICIALES = VARIABLES.map((v) => ({ key: v.key, nombre: v.nombre, unidad: v.unidad, min: v.min, max: v.max }));
+const UMBRALES_INICIALES = VARIABLES.map((v) => ({ key: v.key, nombre: v.nombre, unidad: v.unidad, objetivo: v.objetivo, min: v.min, max: v.max }));
 
 // ---------- almacenamiento ----------
 let estado = cargar() || semilla();
@@ -34,13 +34,13 @@ const nuevoId = (lista) => lista.reduce((m, x) => Math.max(m, x.id), 0) + 1;
 
 // ---------- datos simulados ----------
 // Una lectura cada 30 minutos con variaciones suaves dentro del rango habitual.
+// Los valores normales oscilan alrededor del objetivo, dentro de la banda de ±1.
 function valorSimulado(semilla, variable, ts) {
   const v = VARIABLES.find((x) => x.key === variable);
-  const medio = (v.min + v.max) / 2, mitad = (v.max - v.min) / 2;
   const fase = semilla * 2.7 + variable.length;
-  const onda = Math.sin((ts / (6 * HORA)) * Math.PI * 2 + fase) * 0.45;
+  const onda = Math.sin((ts / (6 * HORA)) * Math.PI * 2 + fase) * 0.3;
   const ruido = Math.sin(ts / (37 * MINUTO) + fase * 3) * 0.05;
-  const x = medio + mitad * (onda + ruido);
+  const x = v.objetivo + (onda + ruido);
   return Number(x.toFixed(variable === 'ph' || variable === 'co2' ? 2 : 1));
 }
 function lecturaSimulada(semilla, ts) {
@@ -302,8 +302,13 @@ export function liberarCO2() {
   const alerta = estado.alertas.filter((a) => a.nivel === 'crit' && !a.reconocida).sort((x, y) => y.ts - x.ts)[0];
   if (!alerta) return { ok: false, mensaje: 'No hay una alarma crítica sin reconocer.' };
   alerta.reconocida = 1;
-  const ultima = lecturas(alerta.nodo_id).at(-1) || { ph: 6.5, temp: 18, hum: 13, co2: 1.5 };
-  recuperaciones[alerta.nodo_id] = { desde: { ph: ultima.ph, temp: ultima.temp, hum: ultima.hum, co2: ultima.co2 }, inicio: Date.now() };
+  // Liberar CO₂ actúa sobre toda la silobolsa: todos sus nodos vuelven al objetivo.
+  const silo = nodoDe(alerta.nodo_id).silo;
+  for (const nodo of silo.nodos) {
+    const ultima = lecturas(nodo.id).at(-1);
+    if (!ultima) continue;
+    recuperaciones[nodo.id] = { desde: { ph: ultima.ph, temp: ultima.temp, hum: ultima.hum, co2: ultima.co2 }, inicio: Date.now() };
+  }
   if (!temporizadorRecuperacion) temporizadorRecuperacion = setInterval(avanzarRecuperaciones, PASO_RECUPERACION);
   guardar();
   emitir('alerta', { reconocida: alerta.id });
@@ -320,8 +325,7 @@ function avanzarRecuperaciones() {
     const f = Math.min(1, (ahora - r.inicio) / DURACION_RECUPERACION);
     const valores = {};
     for (const u of estado.umbrales) {
-      const centro = (u.min + u.max) / 2;
-      valores[u.key] = Number((r.desde[u.key] + (centro - r.desde[u.key]) * f).toFixed(2));
+      valores[u.key] = Number((r.desde[u.key] + (u.objetivo - r.desde[u.key]) * f).toFixed(2));
     }
     const lista = (estado.lecturas[nodoId] || []).filter((l) => l.ts < inicioVentana);
     lista.push({ ts: ahora, ...valores });

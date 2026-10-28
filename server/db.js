@@ -202,7 +202,7 @@ export function crearRepo(db) {
     umbrales() {
       return VARIABLES.map((v) => {
         const r = st.umbral.get(v.key);
-        return { key: v.key, nombre: v.nombre, unidad: v.unidad, min: r.min, max: r.max };
+        return { key: v.key, nombre: v.nombre, unidad: v.unidad, objetivo: v.objetivo, min: r.min, max: r.max };
       });
     },
     editarUmbral(key, min, max) { st.editaUmbral.run(min, max, key); },

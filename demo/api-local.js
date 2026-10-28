@@ -290,6 +290,22 @@ export function simularAnomalia(tipo) {
   const info = nodoDe(nodo.id);
   return { ok: true, silo: info.silo.nombre, nodo: info.nodo.nombre, titulo: (ETIQUETAS[tipo] || tipo) };
 }
+// Acción de la demostración: liberar CO₂ de la silobolsa con la alarma crítica más reciente.
+// Reconoce la alarma y deja una lectura de CO₂ dentro del rango, como si la central lo confirmara.
+export function liberarCO2() {
+  const alerta = estado.alertas.filter((a) => a.nivel === 'crit' && !a.reconocida).sort((x, y) => y.ts - x.ts)[0];
+  if (!alerta) return { ok: false, mensaje: 'No hay una alarma crítica sin reconocer.' };
+  const ahora = Date.now();
+  alerta.reconocida = 1;
+  const lista = lecturas(alerta.nodo_id);
+  const ultima = lista[lista.length - 1] || { ph: 6.5, temp: 18, hum: 13 };
+  ingresarLectura(alerta.nodo_id, ahora, { ph: ultima.ph, temp: ultima.temp, hum: ultima.hum, co2: 1.2 });
+  guardar();
+  emitir('alerta', { reconocida: alerta.id });
+  const info = nodoDe(alerta.nodo_id);
+  return { ok: true, silo: info.silo.nombre, nodo: info.nodo.nombre };
+}
+
 const ETIQUETAS = { rotura: 'Posible rotura o ingreso de aire', fermentacion: 'Posible fermentación' };
 
 // Reemplaza fetch para las rutas /api/ y el canal de eventos en vivo, que en la demo se simula con latidos.

@@ -9,7 +9,7 @@ const botonBase = { minHeight: 44, padding: '8px 14px', borderRadius: 10, font: 
 export default function PanelSimulador() {
   const [registro, setRegistro] = useState([]);
   const [permiso, setPermiso] = useState(typeof Notification === 'undefined' ? 'no-disponible' : Notification.permission);
-  const [abierto, setAbierto] = useState(true);
+  const [abierto, setAbierto] = useState(false);
 
   useEffect(() => {
     window.__agrynAviso = (titulo, detalle) => {

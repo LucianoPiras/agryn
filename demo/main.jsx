@@ -6,6 +6,7 @@ import App from '../src/App.jsx';
 import '../src/index.css';
 import { instalarApiDemo } from './api-local.js';
 import PanelSimulador from './panel.jsx';
+import { activarBotonCO2 } from './boton-co2.js';
 
 // Las notificaciones del navegador se muestran también dentro de la página, por si el navegador
 // no permite mostrarlas (por ejemplo, en Android sin service worker).
@@ -21,6 +22,7 @@ if (typeof window.Notification !== 'undefined') {
 }
 
 instalarApiDemo();
+activarBotonCO2();
 createRoot(document.getElementById('root')).render(
   <>
     <App />

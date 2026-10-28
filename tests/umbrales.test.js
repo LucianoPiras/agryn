@@ -36,9 +36,9 @@ test('los umbrales arrancan con el objetivo de cada variable y una banda de 1', 
   const r = await llamar('GET', '/api/umbrales');
   assert.equal(r.status, 200);
   const ph = r.data.find((u) => u.key === 'ph');
-  assert.equal(ph.objetivo, 6.5);
-  assert.equal(ph.min, 5.5);
-  assert.equal(ph.max, 7.5);
+  assert.equal(ph.objetivo, 7);
+  assert.equal(ph.min, 6);
+  assert.equal(ph.max, 8);
   assert.equal(r.data.length, 4);
 });
 

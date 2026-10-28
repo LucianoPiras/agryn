@@ -49,7 +49,7 @@ test('una alerta crítica avisa a cada usuario al instante y se envía por el ca
   const silo = await llamar('POST', '/api/silobolsas', { cuerpo: { nombre: 'Avisos 01', contenido: 'Soja' }, token: tokenAna });
   await llamar('POST', `/api/silobolsas/${silo.data.id}/nodos`, { cuerpo: { nombre: 'Nodo A', device_id: 'AVI-1' }, token: tokenAna });
 
-  await llamar('POST', '/api/gateway/lecturas', { cuerpo: [{ device_id: 'AVI-1', ph: 8.1 }], gateway: true });
+  await llamar('POST', '/api/gateway/lecturas', { cuerpo: [{ device_id: 'AVI-1', ph: 9.0 }], gateway: true });
 
   const ana = await llamar('GET', '/api/avisos', { token: tokenAna });
   const bruno = await llamar('GET', '/api/avisos', { token: tokenBruno });
@@ -119,7 +119,7 @@ test('silenciar una silobolsa deja de avisar a ese usuario, y solo a él', async
 
   const anaAntes = (await llamar('GET', '/api/avisos', { token: tokenAna })).data.no_leidos;
   const brunoAntes = (await llamar('GET', '/api/avisos', { token: tokenBruno })).data.no_leidos;
-  await llamar('POST', '/api/gateway/lecturas', { cuerpo: [{ device_id: 'AVI-S', ph: 8.3 }], gateway: true });
+  await llamar('POST', '/api/gateway/lecturas', { cuerpo: [{ device_id: 'AVI-S', ph: 9.0 }], gateway: true });
 
   assert.equal((await llamar('GET', '/api/avisos', { token: tokenAna })).data.no_leidos, anaAntes, 'Ana no recibe el aviso');
   assert.equal((await llamar('GET', '/api/avisos', { token: tokenBruno })).data.no_leidos, brunoAntes + 1, 'Bruno sí lo recibe');

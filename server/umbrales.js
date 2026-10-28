@@ -6,7 +6,7 @@
 const BANDA = 1;
 const objetivo = (key, nombre, unidad, valor, dec) => ({ key, nombre, unidad, objetivo: valor, min: Number((valor - BANDA).toFixed(dec)), max: Number((valor + BANDA).toFixed(dec)) });
 export const VARIABLES = [
-  objetivo('ph', 'pH', '', 6.5, 2),
+  objetivo('ph', 'pH', '', 7, 2),
   objetivo('temp', 'Temperatura', '°C', 17, 1),
   objetivo('hum', 'Humedad', '%', 12, 1),
   objetivo('co2', 'CO₂', '%', 6.5, 2)

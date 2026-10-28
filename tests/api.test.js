@@ -69,7 +69,7 @@ test('recibe un lote, rechaza lo inválido y dispara alertas', async () => {
   const ahora = Date.now();
   const r = await gateway([
     { device_id: 'ESP32-A1', ph: 6.5, temp: 18, hum: 13, co2: 6.5, ts: ahora - 60000 },
-    { device_id: 'ESP32-A1', ph: 8.1, temp: 18, ts: ahora },                 // pH fuera de rango: crítica
+    { device_id: 'ESP32-A1', ph: 9.0, temp: 18, ts: ahora },                 // pH fuera de rango: crítica
     { device_id: 'NO-EXISTE', ph: 6.5, ts: ahora },                          // nodo desconocido
     { device_id: 'ESP32-A1', temp: 'alta', ts: ahora }                       // valor no numérico
   ]);
@@ -88,7 +88,7 @@ test('un reintento con el mismo ts no duplica lecturas', async () => {
 });
 
 test('no repite una alerta que sigue sin reconocer', async () => {
-  const r = await gateway([{ device_id: 'ESP32-A1', ph: 8.1, ts: Date.now() + 1000 }]);
+  const r = await gateway([{ device_id: 'ESP32-A1', ph: 9.0, ts: Date.now() + 1000 }]);
   assert.equal(r.data.alertas_nuevas, 0);
 });
 

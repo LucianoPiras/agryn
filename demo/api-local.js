@@ -63,7 +63,7 @@ function semilla() {
   const rotura = [];
   for (let i = 0; i < 25; i++) {
     const ts = ahora - (24 - i) * 5 * MINUTO;
-    rotura.push({ ts, ph: 6.5, temp: 18.2, hum: Number((12.6 + (1.6 * i) / 24).toFixed(1)), co2: Number((2.0 - (0.7 * i) / 24).toFixed(2)) });
+    rotura.push({ ts, ph: 6.5, temp: 18.2, hum: Number((12.6 + (2.4 * i) / 24).toFixed(1)), co2: Number((2.0 - (1.58 * i) / 24).toFixed(2)) });
   }
   lecturas[5] = lecturas[5].filter((l) => l.ts < ahora - 2 * HORA).concat(rotura);
   const alertas = [{ id: 1, nodo_id: 5, variable: 'rotura', valor: 1.3, nivel: 'crit', ts: ahora, reconocida: 0, creada: ahora, notificada: 1, diagnostico: diagnosticar(ventanaEn(lecturas[5], ahora)) }];
@@ -106,6 +106,7 @@ function ingresarLectura(nodoId, ts, valores) {
 function latir() {
   const ts = Math.floor(Date.now() / (30 * 1000)) * 30 * 1000;
   for (const s of estado.silos) for (const n of s.nodos) {
+    if (recuperaciones[n.id]) continue; // mientras se corrige, sus valores los pone la recuperación
     ingresarLectura(n.id, ts, lecturaSimulada(n.id, ts));
   }
   guardar();
@@ -271,8 +272,8 @@ function emitir(nombre, datos = {}) {
 
 // Simula lo que manda la central: un patrón en las últimas 2 horas y una alarma en un nodo sin alerta activa.
 const PATRONES_SIMULADOS = {
-  rotura: (i) => ({ ph: 6.5, temp: 18.2, hum: Number((12.6 + (1.6 * i) / 24).toFixed(1)), co2: Number((2.0 - (0.7 * i) / 24).toFixed(2)) }),
-  fermentacion: (i) => ({ ph: 6.5, temp: Number((18 + (4.4 * i) / 24).toFixed(1)), hum: 13.2, co2: Number((1.2 + (0.7 * i) / 24).toFixed(2)) })
+  rotura: (i) => ({ ph: 6.5, temp: 18.2, hum: Number((12.6 + (2.4 * i) / 24).toFixed(1)), co2: Number((2.0 - (1.58 * i) / 24).toFixed(2)) }),
+  fermentacion: (i) => ({ ph: 6.5, temp: Number((18 + (8.4 * i) / 24).toFixed(1)), hum: 13.2, co2: Number((1.2 + (0.7 * i) / 24).toFixed(2)) })
 };
 export function simularAnomalia(tipo) {
   const ahora = Date.now();
@@ -291,19 +292,45 @@ export function simularAnomalia(tipo) {
   return { ok: true, silo: info.silo.nombre, nodo: info.nodo.nombre, titulo: (ETIQUETAS[tipo] || tipo) };
 }
 // Acción de la demostración: liberar CO₂ de la silobolsa con la alarma crítica más reciente.
-// Reconoce la alarma y deja una lectura de CO₂ dentro del rango, como si la central lo confirmara.
+// Reconoce la alarma y, en vez de saltar a un valor normal, los datos del nodo vuelven al rango de a poco.
+const DURACION_RECUPERACION = 90 * 1000;
+const PASO_RECUPERACION = 3 * 1000;
+const recuperaciones = {};
+let temporizadorRecuperacion = null;
+
 export function liberarCO2() {
   const alerta = estado.alertas.filter((a) => a.nivel === 'crit' && !a.reconocida).sort((x, y) => y.ts - x.ts)[0];
   if (!alerta) return { ok: false, mensaje: 'No hay una alarma crítica sin reconocer.' };
-  const ahora = Date.now();
   alerta.reconocida = 1;
-  const lista = lecturas(alerta.nodo_id);
-  const ultima = lista[lista.length - 1] || { ph: 6.5, temp: 18, hum: 13 };
-  ingresarLectura(alerta.nodo_id, ahora, { ph: ultima.ph, temp: ultima.temp, hum: ultima.hum, co2: 1.2 });
+  const ultima = lecturas(alerta.nodo_id).at(-1) || { ph: 6.5, temp: 18, hum: 13, co2: 1.5 };
+  recuperaciones[alerta.nodo_id] = { desde: { ph: ultima.ph, temp: ultima.temp, hum: ultima.hum, co2: ultima.co2 }, inicio: Date.now() };
+  if (!temporizadorRecuperacion) temporizadorRecuperacion = setInterval(avanzarRecuperaciones, PASO_RECUPERACION);
   guardar();
   emitir('alerta', { reconocida: alerta.id });
   const info = nodoDe(alerta.nodo_id);
   return { ok: true, silo: info.silo.nombre, nodo: info.nodo.nombre };
+}
+
+// Cada paso mueve las lecturas del nodo un poco más hacia el centro del rango habitual.
+function avanzarRecuperaciones() {
+  const ahora = Date.now();
+  // El último punto del gráfico promedia la ventana de 30 minutos: se reemplazan sus lecturas para que el valor se vea moverse.
+  const inicioVentana = Math.floor(ahora / (30 * MINUTO)) * 30 * MINUTO;
+  for (const [nodoId, r] of Object.entries(recuperaciones)) {
+    const f = Math.min(1, (ahora - r.inicio) / DURACION_RECUPERACION);
+    const valores = {};
+    for (const u of estado.umbrales) {
+      const centro = (u.min + u.max) / 2;
+      valores[u.key] = Number((r.desde[u.key] + (centro - r.desde[u.key]) * f).toFixed(2));
+    }
+    const lista = (estado.lecturas[nodoId] || []).filter((l) => l.ts < inicioVentana);
+    lista.push({ ts: ahora, ...valores });
+    estado.lecturas[nodoId] = lista;
+    if (f >= 1) delete recuperaciones[nodoId];
+  }
+  guardar();
+  emitir('datos', {});
+  if (!Object.keys(recuperaciones).length) { clearInterval(temporizadorRecuperacion); temporizadorRecuperacion = null; }
 }
 
 const ETIQUETAS = { rotura: 'Posible rotura o ingreso de aire', fermentacion: 'Posible fermentación' };

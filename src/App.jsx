@@ -20,6 +20,8 @@ const CONTENIDOS = ['Soja', 'Maíz', 'Trigo', 'Girasol', 'Sorgo', 'Cebada', 'For
 // Silobolsa vacía: se muestra mientras no hay ninguna cargada, para que la pantalla no se rompa.
 const SIN_SILO = { id: -1, name: 'Sin silobolsas', content: 'Sin definir', custom: '', nodes: [] };
 const SESION = 'agryn-sesion-v1';
+// Variables que marca cada patrón de riesgo en los nodos.
+const PATRON_VARS = { rotura: ['co2', 'hum'], fermentacion: ['temp', 'co2'] };
 const CODE_TTL = 5 * 60 * 1000;
 // Pasa una silobolsa de la API al formato que usa la pantalla.
 function desdeApi(x) {
@@ -343,7 +345,7 @@ export default class App extends React.Component {
       if (!VARS.some((x) => x.key === a.variable)) {
         // Patrón (fermentación, rotura): no es una variable, así que no tiene rango ni gráfico propio
         return {
-          id: a.id, bid: a.silobolsa_id, nid: a.nodo_id, iv: 0, vista: 'overview', sev: a.nivel, cur: a.valor, st: 'patron', acked: false,
+          id: a.id, bid: a.silobolsa_id, nid: a.nodo_id, iv: 0, vista: 'overview', sev: a.nivel, cur: a.valor, st: 'patron', acked: false, vars: PATRON_VARS[a.variable] || [],
           title: a.silobolsa + ' · ' + a.nodo + ' · ' + a.etiqueta,
           detail: a.descripcion + ' · ' + hace
         };
@@ -352,12 +354,13 @@ export default class App extends React.Component {
       const v = VARS[iv];
       const st = a.valor > v.max ? 'high' : 'low';
       return {
-        id: a.id, bid: a.silobolsa_id, nid: a.nodo_id, iv: iv, vista: v.key, sev: a.nivel, cur: a.valor, st: st, acked: false,
+        id: a.id, bid: a.silobolsa_id, nid: a.nodo_id, iv: iv, vista: v.key, sev: a.nivel, cur: a.valor, st: st, acked: false, vars: [a.variable],
         title: a.silobolsa + ' · ' + a.nodo + ' · ' + v.name + ' ' + fmt(a.valor, v.dec) + unitTxt(v),
         detail: (st === 'high' ? 'Supera el máximo habitual (' + fmt(v.max, v.dec) + unitTxt(v) + ')' : 'Está por debajo del mínimo habitual (' + fmt(v.min, v.dec) + unitTxt(v) + ')') + ' · ' + hace
       };
     });
     alerts.sort((a, b) => (a.acked - b.acked) || ((a.sev === 'crit' ? 0 : 1) - (b.sev === 'crit' ? 0 : 1)));
+    const alertaDe = (nid, key) => alerts.some((a) => !a.acked && a.nid === nid && a.vars.includes(key));
     const go = (bid, nid, view) => () => self.setState({ bag: bid, node: nid, view: view, cursor: null });
     const doAck = (id) => () => self.reconocer(id);
 
@@ -445,8 +448,9 @@ export default class App extends React.Component {
       const cx = X(idx), cv = vals[idx], cst = self.status(cv, v);
       const nodeVals = bo.nodes.map((nd) => self.val(bo, nd, vi, N24 - 1, N24));
       const outNodes = [];
-      nodeVals.forEach((x, k) => { if (self.status(x, v) !== 'ok') outNodes.push(k); });
-      const anyCrit = outNodes.some((k) => self.sev(nodeVals[k], v) === 'crit');
+      nodeVals.forEach((x, k) => { if (self.status(x, v) !== 'ok' || alertaDe(bo.nodes[k].id, v.key)) outNodes.push(k); });
+      const anyCrit = outNodes.some((k) => alertaDe(bo.nodes[k].id, v.key) || self.sev(nodeVals[k], v) === 'crit');
+      const alertados = bo.nodes.filter((nd) => alertaDe(nd.id, v.key)).map((nd) => nd.name);
       let note, noteColor;
       if (nsel == null) {
         note = outNodes.length ? 'Fuera de rango: ' + outNodes.map((k) => bo.nodes[k].name).join(', ') : (NN === 1 ? 'El nodo está dentro del rango' : 'Los ' + NN + ' nodos están dentro del rango');
@@ -456,8 +460,8 @@ export default class App extends React.Component {
       }
       return {
         key: v.key, name: v.name, unit: v.unit,
-        value: fmt(curV, v.dec), valColor: st === 'ok' ? C.text : col(sv),
-        statusLabel: st === 'ok' ? 'Normal' : (st === 'high' ? 'Sobre el máximo' : 'Bajo el mínimo'),
+        value: fmt(curV, v.dec), valColor: alertados.length ? C.crit : (st === 'ok' ? C.text : col(sv)),
+        statusLabel: alertados.length ? 'Alerta en ' + alertados.join(', ') : (st === 'ok' ? 'Normal' : (st === 'high' ? 'Sobre el máximo' : 'Bajo el mínimo')),
         chipBg: sv === 'ok' ? C.okBg : (sv === 'crit' ? C.critBg : C.warnBg), chipFg: col(sv),
         border: st === 'ok' ? '#DCE5E0' : (sv === 'crit' ? 'rgba(200,50,31,0.55)' : 'rgba(161,92,0,0.5)'),
         note, noteColor,
@@ -485,10 +489,10 @@ export default class App extends React.Component {
           { label: 'Tiempo fuera de rango', value: out ? dur(out * range.step) : 'Ninguno', color: out ? C.crit : C.ok }
         ],
         nodeCompare: bo.nodes.map((nd, k) => {
-          const x = nodeVals[k], s2 = self.status(x, v), sv2 = s2 === 'ok' ? 'ok' : self.sev(x, v), selected = nsel && nsel.id === nd.id;
+          const x = nodeVals[k], alertado = alertaDe(nd.id, v.key), s2 = self.status(x, v), sv2 = alertado ? 'crit' : (s2 === 'ok' ? 'ok' : self.sev(x, v)), selected = nsel && nsel.id === nd.id;
           return {
             name: nd.name, value: fmt(x, v.dec) + unitTxt(v),
-            color: s2 === 'ok' ? C.text : col(sv2), dot: col(sv2),
+            color: s2 === 'ok' && !alertado ? C.text : col(sv2), dot: col(sv2),
             bg: selected ? '#F1F6F3' : 'transparent', border: selected ? '#B9CCC2' : 'transparent',
             pick: () => self.setState({ node: nd.id, cursor: null })
           };
@@ -523,7 +527,7 @@ export default class App extends React.Component {
     bo.nodes.forEach((nd) => {
       const rows = []; let outC = 0, crit = false;
       VARS.forEach((v, vi) => {
-        const x = self.val(bo, nd, vi, N24 - 1, N24), st = self.status(x, v), sv = st === 'ok' ? 'ok' : self.sev(x, v);
+        const x = self.val(bo, nd, vi, N24 - 1, N24), alertado = alertaDe(nd.id, v.key), st = alertado ? 'alerta' : self.status(x, v), sv = st === 'ok' ? 'ok' : (alertado ? 'crit' : self.sev(x, v));
         if (st !== 'ok') { outC++; if (sv === 'crit') crit = true; }
         rows.push({ label: v.name, value: fmt(x, v.dec) + unitTxt(v), color: st === 'ok' ? C.text : col(sv), dot: col(sv) });
       });
@@ -600,7 +604,7 @@ export default class App extends React.Component {
       };
     });
     const varNav = VARS.map((v, vi) => {
-      const x = pt(vi, N24 - 1, N24), st = self.status(x, v), sv = st === 'ok' ? 'ok' : self.sev(x, v);
+      const x = pt(vi, N24 - 1, N24), st = self.status(x, v), sv = bo.nodes.some((nd) => alertaDe(nd.id, v.key)) ? 'crit' : (st === 'ok' ? 'ok' : self.sev(x, v));
       return {
         name: v.name, value: fmt(x, v.dec) + unitTxt(v),
         valColor: sv === 'ok' ? 'rgba(250,246,233,0.85)' : (sv === 'crit' ? '#FFB4A6' : '#FFD98A'),

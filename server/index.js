@@ -11,6 +11,7 @@
 //   AGRYN_VAPID_PUBLIC  clave pública para notificaciones push (se genera con tools/generar-claves-push.js)
 //   AGRYN_VAPID_PRIVATE clave privada para notificaciones push (secreta, no la compartas)
 //   AGRYN_VAPID_SUBJECT correo de contacto para los servicios push (opcional)
+//   AGRYN_FUENTE_URL    dirección de la app de Apps Script que tiene las cápsulas (se consulta cada 30 s)
 //   PORT                puerto del servidor (3001 por defecto)
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +22,7 @@ import { crearNotificador } from './notificaciones.js';
 import { crearBus } from './eventos.js';
 import { verificarSinDatos } from './salud.js';
 import { crearCanalPush } from './push.js';
+import { iniciarFuente } from './fuente.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
@@ -73,6 +75,9 @@ const notificador = crearNotificador({ repo, canales, bus });
 setInterval(() => notificador.procesar(), 60 * 1000);
 // Si una silobolsa deja de mandar datos, la alerta sale enseguida.
 setInterval(() => verificarSinDatos(repo, bus, notificador), 30 * 1000);
+
+// Fuente externa (Apps Script con las cápsulas del Heltec): si está configurada, se consulta cada 30 s.
+if (process.env.AGRYN_FUENTE_URL) iniciarFuente({ url: process.env.AGRYN_FUENTE_URL, repo, bus });
 
 const app = crearApp({
   repo,

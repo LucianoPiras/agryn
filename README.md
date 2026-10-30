@@ -100,6 +100,7 @@ AGRYN_CENTRAL_KEY=...                                       # clave del ESP32 ce
 AGRYN_VAPID_PUBLIC=...                                      # notificaciones push (node tools/generar-claves-push.js)
 AGRYN_VAPID_PRIVATE=...                                     # clave privada push: secreta
 AGRYN_VAPID_SUBJECT=mailto:Agryn.silobolsa@gmail.com        # opcional
+AGRYN_FUENTE_URL=https://script.google.com/macros/s/.../exec  # app de Apps Script con las cápsulas (se consulta cada 30 s; el nodo se llama cap-<id>)
 ```
 
 ```bash

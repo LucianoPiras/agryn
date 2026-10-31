@@ -6,7 +6,7 @@
 import { VARIABLES, evaluar } from '../server/umbrales.js';
 import { serie, RANGOS } from '../server/serie.js';
 import { diagnosticar, VENTANA_DIAGNOSTICO } from '../server/diagnostico.js';
-import { PATRONES, etiquetaVariable } from '../server/patrones.js';
+import { PATRONES, etiquetaVariable, seCierraSola, patronResuelto } from '../server/patrones.js';
 
 const CLAVE_STORE = 'agryn-demo-v1';
 const SESION_LOCAL = 'agryn-sesion-v1';
@@ -244,6 +244,7 @@ async function resolver(ruta, metodo, cuerpo, url) {
   if ((m = p.match(/^\/api\/alertas\/(\d+)\/reconocer$/)) && metodo === 'POST') {
     const a = estado.alertas.find((x) => x.id === Number(m[1]));
     if (!a) return error(404, 'Alerta no encontrada.');
+    if (!a.reconocida && seCierraSola(a.variable)) return error(409, 'Esta alerta no se puede descartar: se cierra sola cuando los valores vuelven a la normalidad.');
     a.reconocida = 1; guardar();
     return json({ ok: true });
   }
@@ -281,7 +282,7 @@ const PATRONES_SIMULADOS = {
 export function simularAnomalia(tipo) {
   const ahora = Date.now();
   const nodo = estado.silos.flatMap((s) => s.nodos).find((n) => !estado.alertas.some((a) => a.nodo_id === n.id && a.variable === tipo && !a.reconocida));
-  if (!nodo) return { ok: false, mensaje: 'Todos los nodos ya tienen esa alarma sin reconocer. Reconocela para simular otra.' };
+  if (!nodo) return { ok: false, mensaje: 'Todos los nodos ya tienen esa alarma activa. Esperá a que se solucione para simular otra.' };
   const patron = PATRONES_SIMULADOS[tipo];
   const nuevas = Array.from({ length: 25 }, (_, i) => ({ ts: ahora - (24 - i) * 5 * MINUTO, ...patron(i) }));
   estado.lecturas[nodo.id] = lecturas(nodo.id).filter((l) => l.ts < ahora - 2 * HORA).concat(nuevas);
@@ -331,11 +332,22 @@ function avanzarRecuperaciones() {
     const lista = (estado.lecturas[nodoId] || []).filter((l) => l.ts < inicioVentana);
     lista.push({ ts: ahora, ...valores });
     estado.lecturas[nodoId] = lista;
-    if (f >= 1) delete recuperaciones[nodoId];
+    if (f >= 1) { delete recuperaciones[nodoId]; cerrarResueltas(Number(nodoId)); }
   }
   guardar();
   emitir('datos', {});
   if (!Object.keys(recuperaciones).length) { clearInterval(temporizadorRecuperacion); temporizadorRecuperacion = null; }
+}
+
+// Cuando termina la liberación, las alarmas de rotura y fermentación del nodo se cierran solas
+// si las variables del patrón volvieron al rango (en la demo no se espera, la liberación ya terminó).
+function cerrarResueltas(nodoId) {
+  let cerradas = 0;
+  for (const a of estado.alertas) {
+    if (a.nodo_id !== nodoId || a.reconocida || !seCierraSola(a.variable)) continue;
+    if (patronResuelto(a.variable, lecturas(nodoId).filter((l) => l.ts > a.ts), estado.umbrales, 0)) { a.reconocida = 1; cerradas++; }
+  }
+  if (cerradas) emitir('alerta', { cerradas });
 }
 
 const ETIQUETAS = { rotura: 'Posible rotura o ingreso de aire', fermentacion: 'Posible fermentación' };

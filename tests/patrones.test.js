@@ -88,3 +88,28 @@ test('la app no detecta patrones por su cuenta: lecturas que suben juntas no gen
   const alertas = (await llamar('GET', '/api/alertas', { token })).data;
   assert.equal(alertas.filter((a) => a.variable === 'fermentacion').length, 1, 'solo la de la central');
 });
+
+test('rotura y fermentación no se pueden descartar a mano', async () => {
+  const alertas = (await llamar('GET', '/api/alertas', { token })).data;
+  const fermentacion = alertas.find((a) => a.variable === 'fermentacion');
+  const r = await llamar('POST', `/api/alertas/${fermentacion.id}/reconocer`, { token });
+  assert.equal(r.status, 409);
+  assert.match(r.data.error, /se cierra sola/);
+  assert.ok((await llamar('GET', '/api/alertas', { token })).data.some((a) => a.id === fermentacion.id), 'sigue activa');
+});
+
+test('la alerta de rotura se cierra sola cuando los valores vuelven al rango y se mantienen', async () => {
+  const silo = await llamar('POST', '/api/silobolsas', { cuerpo: { nombre: 'Silo Cierre', contenido: 'Soja' }, token });
+  await llamar('POST', `/api/silobolsas/${silo.data.id}/nodos`, { cuerpo: { nombre: 'Nodo R', device_id: 'CIE-1' }, token });
+  const t0 = Date.now() - HORA;
+  await llamar('POST', '/api/central/anomalias', { cuerpo: [{ device_id: 'CIE-1', tipo: 'rotura', ts: t0 }], clave: CLAVE_CENTRAL });
+  const activa = () => llamar('GET', '/api/alertas', { token }).then((r) => r.data.find((a) => a.variable === 'rotura' && a.nodo === 'Nodo R'));
+  assert.ok(await activa());
+  const lectura = (min, co2, hum) => ({ device_id: 'CIE-1', ts: t0 + min * 60 * 1000, ph: 7, temp: 17, hum, co2 });
+  // Todavía fuera de rango y después solo 2 minutos dentro: no alcanza para darla por solucionada.
+  await llamar('POST', '/api/central/lecturas', { cuerpo: [lectura(1, 3.0, 15), lectura(2, 6.5, 12), lectura(4, 6.5, 12)], clave: CLAVE_CENTRAL });
+  assert.ok(await activa(), 'sigue activa con 2 min dentro del rango');
+  // Cinco minutos seguidos dentro del rango: se cierra sola.
+  await llamar('POST', '/api/central/lecturas', { cuerpo: [lectura(7, 6.5, 12)], clave: CLAVE_CENTRAL });
+  assert.equal(await activa(), undefined, 'se cerró sola');
+});

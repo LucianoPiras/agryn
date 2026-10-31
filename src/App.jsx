@@ -346,6 +346,8 @@ export default class App extends React.Component {
         // Patrón (fermentación, rotura): no es una variable, así que no tiene rango ni gráfico propio
         return {
           id: a.id, bid: a.silobolsa_id, nid: a.nodo_id, iv: 0, vista: 'overview', sev: a.nivel, cur: a.valor, st: 'patron', acked: false, vars: PATRON_VARS[a.variable] || [],
+          // Rotura y fermentación no se pueden descartar: se cierran solas cuando se soluciona el problema.
+          fija: !!PATRON_VARS[a.variable],
           title: a.silobolsa + ' · ' + a.nodo + ' · ' + a.etiqueta,
           detail: a.descripcion + ' · ' + hace
         };
@@ -403,13 +405,15 @@ export default class App extends React.Component {
       pillFg: a.sev === 'crit' ? C.crit : C.warn,
       border: a.sev === 'crit' && !a.acked ? 'rgba(200,50,31,0.55)' : '#DCE5E0',
       title: a.title, detail: a.detail,
-      canAck: !a.acked, isAcked: a.acked,
+      canAck: !a.acked && !a.fija, isAcked: a.acked, fija: !a.acked && !!a.fija,
       open: go(a.bid, a.nid, a.vista), ack: doAck(a.id)
     }));
+    // Un banner por cada alerta sin reconocer, uno debajo del otro: así se ven todas a la vez.
     const unacked = alerts.filter((a) => !a.acked);
-    const top = unacked[0];
-    const crit = top && top.sev === 'crit';
-    const banner = top ? {
+    const banners = unacked.map((a) => {
+      const crit = a.sev === 'crit';
+      return {
+      id: a.id,
       bg: crit ? '#B02A18' : '#FFF4DD',
       border: crit ? '#7A1B0F' : '#B7791F',
       accent: crit ? '#FAF6E9' : '#8A4D00',
@@ -417,11 +421,13 @@ export default class App extends React.Component {
       iconFg: crit ? '#B02A18' : '#FAF6E9',
       iconBg: crit ? '#FAF6E9' : '#8A4D00',
       detailColor: crit ? '#FAF6E9' : '#2E453A',
-      kicker: (crit ? 'Alerta crítica' : 'Atención') + (unacked.length > 1 ? ' · +' + (unacked.length - 1) + ' más' : ''),
-      title: top.title,
-      detail: top.detail,
-      open: go(top.bid, top.nid, top.vista), ack: doAck(top.id)
-    } : { bg: '', border: '', accent: '', fg: '', iconFg: '', iconBg: '', detailColor: '', kicker: '', title: '', detail: '', open: null, ack: null };
+      kicker: crit ? 'Alerta crítica' : 'Atención',
+      title: a.title,
+      detail: a.detail,
+      canAck: !a.fija, fija: !!a.fija,
+      open: go(a.bid, a.nid, a.vista), ack: doAck(a.id)
+      };
+    });
 
     // ---- gráficos ----
     const chart = (vi) => {
@@ -705,7 +711,7 @@ export default class App extends React.Component {
       goOverview: () => self.setState({ view: 'overview', cursor: null }),
       bagList, varNav, rangeList, nodeChips, nodeCards,
       cards, d,
-      hasBanner: !!top, banner,
+      hasBanner: banners.length > 0, banners,
       alertRows, noAlerts: alerts.length === 0,
       alertSummary: alerts.length === 0 ? 'Sin alertas' : alerts.length + (alerts.length === 1 ? ' alerta en toda la planta' : ' alertas en toda la planta'),
       onCursor: (e) => self.setState({ cursor: parseInt(e.target.value, 10) }),
@@ -1076,33 +1082,44 @@ export default class App extends React.Component {
       </React.Fragment>))}
       </div>
       {v.hasBanner && (<>
-      <section role="alert" aria-live="assertive" className="flash" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: `${v.banner.bg}`, border: `1px solid ${v.banner.border}`, color: `${v.banner.fg}` }}>
-      <span style={{ width: "44px", height: "44px", flex: "none", borderRadius: "999px", background: `${v.banner.iconBg}`, color: `${v.banner.iconFg}`, display: "grid", placeItems: "center" }} aria-hidden="true">
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      {v.banners.map((b) => (<React.Fragment key={b.id}>
+      <section role="alert" aria-live="assertive" className="flash" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: `${b.bg}`, border: `1px solid ${b.border}`, color: `${b.fg}` }}>
+      <span style={{ width: "44px", height: "44px", flex: "none", borderRadius: "999px", background: `${b.iconBg}`, color: `${b.iconFg}`, display: "grid", placeItems: "center" }} aria-hidden="true">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3 2.5 20h19L12 3Z" />
       <path d="M12 10v4.5M12 17.5h.01" />
       </svg>
       </span>
       <div style={{ flex: "1 1 300px", minWidth: "0" }}>
-      <p style={{ margin: "0", font: "700 13px/1 'Montserrat', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", color: `${v.banner.accent}` }}>
-      {v.banner.kicker}
+      <p style={{ margin: "0", font: "700 13px/1 'Montserrat', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", color: `${b.accent}` }}>
+      {b.kicker}
       </p>
       <p style={{ margin: "6px 0 0", font: "700 22px/1.15 'Inter', sans-serif", letterSpacing: "-0.02em" }}>
-      {v.banner.title}
+      {b.title}
       </p>
-      <p style={{ margin: "4px 0 0", color: `${v.banner.detailColor}` }}>
-      {v.banner.detail}
+      <p style={{ margin: "4px 0 0", color: `${b.detailColor}` }}>
+      {b.detail}
       </p>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-      <button className="btn" onClick={v.banner.open}>
+      <button className="btn" onClick={b.open}>
       Ver detalle
       </button>
-      <button className="btn primary" onClick={v.banner.ack}>
+      {b.canAck && (<>
+      <button className="btn primary" onClick={b.ack}>
       Reconocer
       </button>
+      </>)}
+      {b.fija && (<>
+      <span style={{ display: "inline-flex", alignItems: "center", minHeight: "44px", padding: "0 14px", borderRadius: "999px", border: `1px solid ${b.accent}`, color: `${b.fg}`, fontSize: "13px", fontWeight: "600" }}>
+      Se cierra sola cuando se solucione
+      </span>
+      </>)}
       </div>
       </section>
+      </React.Fragment>))}
+      </div>
       </>)}
       {v.isOverview && (<>
       <section aria-label="Contenido de la silobolsa" style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: "#FAF6E9", border: "1px solid #DCE5E0" }}>
@@ -1334,6 +1351,11 @@ export default class App extends React.Component {
       {a.isAcked && (<>
       <span style={{ fontSize: "13px", color: "#4F6459", padding: "0 8px" }}>
       Reconocida
+      </span>
+      </>)}
+      {a.fija && (<>
+      <span style={{ fontSize: "13px", color: "#4F6459", padding: "0 8px" }}>
+      Se cierra sola cuando se solucione
       </span>
       </>)}
       </div>

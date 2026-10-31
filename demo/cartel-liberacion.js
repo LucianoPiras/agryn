@@ -5,21 +5,23 @@ import { liberandoCO2 } from './api-local.js';
 
 const ETIQUETA = 'Liberando CO₂';
 
-// Busca el cartel de cada alarma crítica: el bloque que contiene el rótulo «ALERTA CRÍTICA» y el botón «Reconocer».
+// Busca el cartel de cada alarma crítica: cada banner (role="alert") con el rótulo «ALERTA CRÍTICA».
+// Las de rotura y fermentación no tienen botón, porque no se pueden descartar; las demás tienen «Reconocer».
 function carteles() {
   const encontrados = [];
-  for (const b of document.querySelectorAll('button')) {
-    if (b.textContent.trim() !== 'Reconocer') continue;
-    let bloque = b.parentElement;
-    for (let i = 0; i < 6 && bloque && !bloque.innerText.toUpperCase().includes('ALERTA CRÍTICA'); i++) bloque = bloque.parentElement;
-    if (bloque) encontrados.push({ boton: b, bloque });
+  for (const bloque of document.querySelectorAll('section[role="alert"]')) {
+    if (!bloque.innerText.toUpperCase().includes('ALERTA CRÍTICA')) continue;
+    const boton = [...bloque.querySelectorAll('button')].find((b) => ['Reconocer', 'Descartar'].includes(b.textContent.trim())) || null;
+    // La liberación es de las silobolsas simuladas: no se muestra en las alertas de las cápsulas reales.
+    encontrados.push({ boton, bloque, vivo: bloque.innerText.includes('Cápsulas AGRYN (en vivo)') });
   }
   return encontrados;
 }
 
 function actualizar() {
-  for (const { boton, bloque } of carteles()) {
-    if (boton.textContent !== 'Descartar') boton.textContent = 'Descartar';
+  for (const { boton, bloque, vivo } of carteles()) {
+    if (boton && boton.textContent !== 'Descartar') boton.textContent = 'Descartar';
+    if (vivo) continue;
     // La columna de texto es el padre del rótulo «ALERTA CRÍTICA».
     const rotulo = [...bloque.querySelectorAll('*')].find((e) => e.childElementCount === 0 && e.textContent.trim().toUpperCase() === 'ALERTA CRÍTICA');
     const columna = rotulo ? rotulo.parentElement : bloque;

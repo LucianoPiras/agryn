@@ -20,6 +20,16 @@ const MIN = 60 * 1000, DIA = 24 * 60 * MIN;
 const RANGOS = { '24h': { n: 48, paso: 30 * MIN }, '7d': { n: 84, paso: 120 * MIN }, '30d': { n: 90, paso: 480 * MIN } };
 const VARS = ['ph', 'temp', 'hum', 'co2'];
 
+// pH: el que manda la central es simulado y no es real, así que NO se copia. Se simula acá,
+// oscilando suave alrededor del objetivo (7,0), entre 6,67 y 7,33: siempre dentro del rango habitual (6 a 8).
+// Depende solo de la hora de la lectura: la misma lectura da siempre el mismo valor.
+// Es la misma fórmula que server/fuente.js (phSimulado); si cambia una, cambiá la otra.
+const PH_OBJETIVO = 7;
+function phSimulado(ts) {
+  const x = PH_OBJETIVO + 0.25 * Math.sin((ts / (180 * MIN)) * Math.PI * 2) + 0.08 * Math.sin(ts / (11 * MIN));
+  return Number(x.toFixed(2));
+}
+
 function urlFuente() {
   try { const q = new URLSearchParams(window.location.search).get('fuente'); if (q) return q; } catch (e) { /* nada */ }
   return FUENTE_PREDETERMINADA;
@@ -28,7 +38,15 @@ function urlFuente() {
 // ---------- almacenamiento (solo en este navegador) ----------
 let est = cargar();
 function cargar() {
-  try { const r = window.localStorage.getItem(CLAVE); if (r) return JSON.parse(r); } catch (e) { /* nada */ }
+  try {
+    const r = window.localStorage.getItem(CLAVE);
+    if (r) {
+      const e = JSON.parse(r);
+      // Las lecturas guardadas antes tenían el pH de la central: se reemplaza por el simulado.
+      for (const c of Object.values(e.capsulas || {})) for (const l of c.lecturas || []) l.ph = phSimulado(l.ts);
+      return e;
+    }
+  } catch (e) { /* nada */ }
   return { capsulas: {}, alertas: [], silenciada: false, ultimaOk: 0 };
 }
 function guardar() { try { window.localStorage.setItem(CLAVE, JSON.stringify(est)); } catch (e) { /* queda en memoria */ } }
@@ -46,16 +64,17 @@ async function sincronizar() {
   const r = await fetchRed(url + (url.includes('?') ? '&' : '?') + 'api=datos', { cache: 'no-store' });
   if (!r.ok) throw new Error('la app de las cápsulas respondió ' + r.status);
   const datos = await r.json();
-  let nuevas = 0, alertasNuevas = 0;
+  let nuevas = 0, alertasNuevas = 0, alertasCerradas = 0;
+  const reglas = await umbralesVigentes();
   for (const cap of datos.capsulas || []) {
     const c = est.capsulas[cap.id] || (est.capsulas[cap.id] = { lecturas: [] });
     c.ultima = { fecha: cap.fecha, online: !!cap.online, motivo: cap.motivo || '', hace: num(cap.hace) ?? 0, recibido: Date.now(),
       limite: num(datos.limiteCapsula) ?? LIMITE_PREDETERMINADO,
       alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: num(cap.gas), lat: num(cap.lat), lon: num(cap.lon),
-      ph: num(cap.ph), temp: num(cap.temp), hum: num(cap.hum) };
+      ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum) };
     const conocidas = new Set(c.lecturas.map((l) => l.ts));
-    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: num(h.ph), temp: num(h.temp), hum: num(h.hum), co2: num(h.gas) })),
-      { ts: cap.fecha, ph: num(cap.ph), temp: num(cap.temp), hum: num(cap.hum), co2: num(cap.gas) }];
+    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: num(h.temp), hum: num(h.hum), co2: num(h.gas) })),
+      { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum), co2: num(cap.gas) }];
     for (const l of entrantes) {
       if (typeof l.ts !== 'number' || conocidas.has(l.ts)) continue;
       c.lecturas.push(l); conocidas.add(l.ts); nuevas++;
@@ -64,7 +83,8 @@ async function sincronizar() {
     const limite = Date.now() - 31 * DIA;
     c.lecturas = c.lecturas.filter((l) => l.ts >= limite);
 
-    // Alerta de aire: una por episodio, hasta que la reconozcas.
+    // Alerta de aire: una por episodio. No se puede descartar: se cierra sola cuando la cápsula,
+    // en línea, deja de marcar la alerta (el problema se solucionó).
     const nodoId = BASE_NODO + Number(cap.id);
     if (cap.alerta && enLinea(c) && !est.alertas.some((a) => a.nodo_id === nodoId && a.variable === 'rotura' && !a.reconocida)) {
       const ahora = Date.now();
@@ -78,11 +98,21 @@ async function sincronizar() {
       alertasNuevas++;
       if (window.__agrynAviso) window.__agrynAviso('Alerta de aire · Cápsula ' + cap.id, valvula ? 'Válvula abierta: se inyectó CO₂.' : 'Revisá la silobolsa.');
     }
+    // La alerta de aire de la cápsula se cierra sola cuando la cápsula, en línea, deja de marcarla.
+    if (!cap.alerta && enLinea(c)) {
+      for (const a of est.alertas) if (a.nodo_id === nodoId && a.origen !== 'valores' && a.variable === 'rotura' && !a.reconocida) { a.reconocida = 1; alertasCerradas++; }
+    }
+    // Alertas por los valores: rotura, fermentación y cada variable fuera de su rango.
+    if (enLinea(c) && reglas.length) {
+      const r = revisarValores(Number(cap.id), c, reglas);
+      alertasNuevas += r.nuevas; alertasCerradas += r.cerradas;
+    }
   }
   est.ultimaOk = Date.now();
   guardar();
   if (nuevas) emitir('datos');
   if (alertasNuevas) { emitir('alerta'); emitir('aviso'); }
+  else if (alertasCerradas) emitir('alerta');
   revisarSenal();
 }
 
@@ -127,6 +157,90 @@ function revisarSenal() {
     }
   }
   if (cambio) { guardar(); emitir('datos'); emitir('alerta'); emitir('aviso'); }
+}
+
+// ---------- alertas por los valores de la cápsula ----------
+// Usa los mismos umbrales que se editan en la app. Como en el resto de AGRYN:
+//   rotura o ingreso de aire = CO₂ bajo el mínimo y humedad sobre el máximo;
+//   fermentación             = temperatura y CO₂ sobre el máximo.
+// Esas dos no se pueden descartar: se cierran solas cuando las variables del patrón vuelven al rango
+// y se mantienen así SOSTENIDO ms. Si una variable está fuera de rango y no forma parte de un patrón
+// activo, se avisa sola (esa sí se puede descartar, y no vuelve a aparecer hasta un nuevo episodio).
+const PATRON_VARS = { rotura: ['co2', 'hum'], fermentacion: ['temp', 'co2'] };
+const PATRON_NOMBRE = { rotura: 'Posible rotura o ingreso de aire', fermentacion: 'Posible fermentación' };
+const SOSTENIDO = 60 * 1000;
+const NOMBRES = { ph: ['pH', ''], temp: ['Temperatura', ' °C'], hum: ['Humedad', ' %'], co2: ['CO₂', ' %'] };
+
+async function umbralesVigentes() {
+  try { const r = await fetchDemo('/api/umbrales'); return r.ok ? await r.json() : []; } catch (e) { return []; }
+}
+const regla = (reglas, k) => reglas.find((x) => x.key === k);
+function lado(x, r) { if (x == null || !r) return null; return x > r.max ? 'alto' : (x < r.min ? 'bajo' : null); }
+const coma = (x, d) => x.toFixed(d).replace('.', ',');
+function textoValor(k, x, r) {
+  const [nombre, u] = NOMBRES[k], d = k === 'ph' || k === 'co2' ? 2 : 1;
+  return nombre + ' ' + coma(x, d) + u + (x > r.max ? ' (sobre el máximo de ' + coma(r.max, d) + u + ')' : ' (bajo el mínimo de ' + coma(r.min, d) + u + ')');
+}
+// Último valor conocido de cada variable (el historial a veces trae campos vacíos).
+function actual(c) {
+  const v = {};
+  for (let i = c.lecturas.length - 1; i >= 0 && Object.keys(v).length < VARS.length; i--) {
+    const l = c.lecturas[i];
+    for (const k of VARS) if (v[k] == null && l[k] != null) v[k] = l[k];
+  }
+  return v;
+}
+function resuelto(c, a, reglas) {
+  let inicio = null, ultimo = null;
+  for (const l of c.lecturas) {
+    if (l.ts <= a.ts) continue;
+    const ok = PATRON_VARS[a.variable].every((k) => l[k] == null || lado(l[k], regla(reglas, k)) == null);
+    if (!ok) inicio = null; else if (inicio == null) inicio = l.ts;
+    ultimo = l.ts;
+  }
+  return inicio != null && ultimo - inicio >= SOSTENIDO;
+}
+function revisarValores(cid, c, reglas) {
+  const nodoId = BASE_NODO + cid, ahora = Date.now(), v = actual(c);
+  const activa = (variable) => est.alertas.find((a) => a.nodo_id === nodoId && a.variable === variable && !a.reconocida);
+  const ts = c.lecturas.length ? c.lecturas[c.lecturas.length - 1].ts : ahora;
+  let nuevas = 0, cerradas = 0;
+  // 1) Patrones que se solucionaron: se cierran solos.
+  for (const a of est.alertas) {
+    if (a.nodo_id !== nodoId || a.reconocida || a.origen !== 'valores' || !PATRON_VARS[a.variable]) continue;
+    if (resuelto(c, a, reglas)) { a.reconocida = 1; cerradas++; }
+  }
+  // 2) Patrones nuevos.
+  const L = (k) => lado(v[k], regla(reglas, k));
+  const patrones = { rotura: L('co2') === 'bajo' && L('hum') === 'alto', fermentacion: L('temp') === 'alto' && L('co2') === 'alto' };
+  for (const [tipo, hay] of Object.entries(patrones)) {
+    if (!hay || activa(tipo)) continue;
+    est.alertas.push({
+      id: nuevoIdAlerta(), nodo_id: nodoId, variable: tipo, etiqueta: PATRON_NOMBRE[tipo], origen: 'valores', valor: v.co2, nivel: 'crit',
+      ts, reconocida: 0, creada: ahora, notificada: 1, leido: 0,
+      diagnostico: PATRON_NOMBRE[tipo] + ' en la cápsula ' + cid + ': ' + PATRON_VARS[tipo].map((k) => textoValor(k, v[k], regla(reglas, k))).join(', ') +
+        '. No se puede descartar: se cierra sola cuando los valores vuelven al rango.'
+    });
+    nuevas++;
+    if (window.__agrynAviso) window.__agrynAviso(PATRON_NOMBRE[tipo] + ' · Cápsula ' + cid, 'Revisá la silobolsa.');
+  }
+  // 3) Variables sueltas fuera de rango que no explica un patrón activo.
+  c.episodio = c.episodio || {};
+  const cubiertas = new Set(Object.keys(PATRON_VARS).filter((t) => activa(t)).flatMap((t) => PATRON_VARS[t]));
+  for (const k of VARS) {
+    const r = regla(reglas, k), l = lado(v[k], r);
+    const abierta = activa(k);
+    if (!l) { c.episodio[k] = false; if (abierta) { abierta.reconocida = 1; cerradas++; } continue; }   // volvió al rango
+    if (cubiertas.has(k) || abierta || c.episodio[k]) continue;
+    const span = r.max - r.min, desvio = l === 'alto' ? v[k] - r.max : r.min - v[k];
+    est.alertas.push({
+      id: nuevoIdAlerta(), nodo_id: nodoId, variable: k, etiqueta: NOMBRES[k][0], origen: 'valores', valor: v[k], nivel: desvio > span * 0.25 ? 'crit' : 'warn',
+      ts, reconocida: 0, creada: ahora, notificada: 1, leido: 0, diagnostico: null
+    });
+    c.episodio[k] = true;   // si la descartás, no vuelve hasta que el valor regrese al rango y salga de nuevo
+    nuevas++;
+  }
+  return { nuevas, cerradas };
 }
 
 // ---------- serie para los gráficos (igual que server/serie.js) ----------
@@ -226,6 +340,7 @@ async function responder(url, metodo, opciones) {
   if ((m = p.match(/^\/api\/alertas\/(\d+)\/reconocer$/)) && Number(m[1]) > BASE_ALERTA) {
     const a = est.alertas.find((x) => x.id === Number(m[1]));
     if (!a) return json({ error: 'Alerta no encontrada.' }, 404);
+    if (!a.reconocida && PATRON_VARS[a.variable]) return json({ error: 'Esta alerta no se puede descartar: se cierra sola cuando se soluciona el problema.' }, 409);
     a.reconocida = 1; a.leido = 1; guardar();
     return json({ ok: true });
   }

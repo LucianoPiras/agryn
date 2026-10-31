@@ -25,3 +25,32 @@ export function etiquetaVariable(clave) {
   const v = VARIABLES.find((x) => x.key === clave);
   return v ? v.nombre : clave;
 }
+
+// ---------- alertas que no se pueden descartar ----------
+// La rotura (ingreso de aire) y la fermentación quedan a la vista hasta que el problema se soluciona:
+// nadie las puede reconocer a mano. Se cierran solas cuando las variables del patrón vuelven a su
+// rango habitual y se mantienen así durante CIERRE_MS.
+export const VARIABLES_DEL_PATRON = { rotura: ['co2', 'hum'], fermentacion: ['temp', 'co2'] };
+export const CIERRE_MS = 5 * 60 * 1000;
+
+export function seCierraSola(variable) {
+  return Object.prototype.hasOwnProperty.call(VARIABLES_DEL_PATRON, variable);
+}
+
+// ¿Se solucionó el problema de la alerta? lecturas: las del nodo posteriores a la alarma (cualquier orden).
+// Hace falta una racha de lecturas dentro del rango que dure al menos `minimo` ms, sin ninguna fuera del rango después.
+export function patronResuelto(variable, lecturas, reglas, minimo = CIERRE_MS) {
+  const claves = VARIABLES_DEL_PATRON[variable];
+  if (!claves) return false;
+  const enRango = (l) => claves.every((k) => {
+    const r = reglas.find((x) => x.key === k);
+    return !r || l[k] == null || (l[k] >= r.min && l[k] <= r.max);
+  });
+  const conDatos = lecturas.filter((l) => claves.some((k) => l[k] != null)).sort((a, b) => a.ts - b.ts);
+  let inicio = null;
+  for (const l of conDatos) {
+    if (!enRango(l)) inicio = null;
+    else if (inicio == null) inicio = l.ts;
+  }
+  return inicio != null && conDatos[conDatos.length - 1].ts - inicio >= minimo;
+}

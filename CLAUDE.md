@@ -29,6 +29,7 @@ Todo el texto de la interfaz va en español rioplatense (voseo: "Cambialo", "Pro
 - Excepción: la página publicada en GitHub Pages no tiene servidor. Ahí el ingreso es con `agryn.silobolsa@gmail.com` y su contraseña, comparada en el navegador contra la huella SHA-256 (`demo/api-local.js`, `HUELLA_CLAVE`); sin sesión válida, la API de la página y las cápsulas en vivo responden 401 y no se muestran el simulador ni el botón de liberación. Es una barrera para visitantes, no seguridad fuerte.
 - Alertas de rotura (ingreso de aire) y fermentación: no se pueden descartar (la API responde 409). Se cierran solas cuando el problema se soluciona (`server/patrones.js` → `patronResuelto`, `server/cierre.js`). En la demo en vivo (`demo/envivo.js`) la cápsula también genera alertas por sus valores, con los umbrales de la app: rotura = CO₂ bajo el mínimo y humedad sobre el máximo; fermentación = temperatura y CO₂ sobre el máximo; y una alerta por cada variable fuera de rango que no explique un patrón. La «Alerta de aire» que marca la cápsula se cierra cuando deja de marcarla; las de valores, cuando vuelven al rango y se mantienen 1 minuto.
 - Cada alerta activa tiene su propio banner, uno debajo del otro: nunca se tapan entre sí.
+- Celular (hasta 767 px, reglas en `src/index.css`): barra fija abajo con Resumen y las cuatro variables (con su valor), fila de silobolsas que se desliza arriba, resumen en 2 × 2 donde la tarjeta entera abre el detalle, y primero los datos (contenido, nodos y alertas van después con `despues-movil`). La vista de computadora no cambia.
 - El pH de las cápsulas NO se copia de la central (es simulado e irreal): se simula dentro del rango con `phSimulado` (`server/fuente.js` y `demo/envivo.js`, misma fórmula).
 
 ## Cómo trabajar en equipo (Git)
@@ -45,5 +46,4 @@ Luciano y Roberto trabajan en paralelo sobre el mismo repositorio. Cada pedido s
 - WhatsApp y Telegram como canales de aviso (necesitan credenciales y acceso a sus servicios).
 - Definir umbrales reales por tipo de grano (hoy se editan desde la app).
 - Notificaciones de alerta fuera de la app (push, mail o WhatsApp).
-- Vista de celular con alertas (la pantalla ya es responsive, falta pulir la experiencia).
 - Pantalla de presentación para el jurado (equipo y problema que resuelven).

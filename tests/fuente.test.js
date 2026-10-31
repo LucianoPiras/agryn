@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { abrirBase, crearRepo } from '../server/db.js';
-import { sincronizarFuente } from '../server/fuente.js';
+import { sincronizarFuente, phSimulado } from '../server/fuente.js';
 
 const URL_FUENTE = 'https://ejemplo.test/exec';
 const HORA = 60 * 60 * 1000;
@@ -45,4 +45,19 @@ test('si la fuente responde con error, lo informa', async () => {
   const repo = crearRepo(abrirBase(':memory:'));
   const fetchFn = async () => ({ ok: false, status: 500 });
   await assert.rejects(sincronizarFuente({ url: URL_FUENTE, repo, fetchFn }), /500/);
+});
+
+test('el pH de la central no se copia: se simula dentro del rango habitual', async () => {
+  const repo = crearRepo(abrirBase(':memory:'));
+  const silo = repo.crearSilobolsa('Silo pH', 'Soja');
+  repo.crearNodo(silo.id, 'Cápsula 2', 'cap-2');
+  const t0 = Date.now() - 6 * HORA;
+  const hist = Array.from({ length: 40 }, (_, i) => ({ t: t0 + i * 9 * 60 * 1000, temp: 25, hum: 60, gas: 8, ph: i % 2 ? 12.95 : 0.15 }));
+  const { fetchFn } = fuenteFalsa({ capsulas: [{ id: 2, fecha: t0 + 6 * HORA, temp: 25, hum: 60, gas: 8, ph: 13.5, hist }] });
+  await sincronizarFuente({ url: URL_FUENTE, repo, fetchFn });
+  const nodo = repo.nodoPorDevice('cap-2');
+  const lecturas = repo.lecturasEntre(nodo.id, 0, Date.now());
+  assert.equal(lecturas.length, 41);
+  for (const l of lecturas) assert.ok(l.ph >= 6.5 && l.ph <= 7.5, `pH ${l.ph} fuera del rango`);
+  assert.equal(lecturas.at(-1).ph, phSimulado(t0 + 6 * HORA), 'mismo valor para la misma hora');
 });

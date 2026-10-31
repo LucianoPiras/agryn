@@ -18,6 +18,16 @@ const MIN = 60 * 1000, DIA = 24 * 60 * MIN;
 const RANGOS = { '24h': { n: 48, paso: 30 * MIN }, '7d': { n: 84, paso: 120 * MIN }, '30d': { n: 90, paso: 480 * MIN } };
 const VARS = ['ph', 'temp', 'hum', 'co2'];
 
+// pH: el que manda la central es simulado y no es real, así que NO se copia. Se simula acá,
+// oscilando suave alrededor del objetivo (7,0), entre 6,67 y 7,33: siempre dentro del rango habitual (6 a 8).
+// Depende solo de la hora de la lectura: la misma lectura da siempre el mismo valor.
+// Es la misma fórmula que server/fuente.js (phSimulado); si cambia una, cambiá la otra.
+const PH_OBJETIVO = 7;
+function phSimulado(ts) {
+  const x = PH_OBJETIVO + 0.25 * Math.sin((ts / (180 * MIN)) * Math.PI * 2) + 0.08 * Math.sin(ts / (11 * MIN));
+  return Number(x.toFixed(2));
+}
+
 function urlFuente() {
   try { const q = new URLSearchParams(window.location.search).get('fuente'); if (q) return q; } catch (e) { /* nada */ }
   return FUENTE_PREDETERMINADA;
@@ -26,7 +36,15 @@ function urlFuente() {
 // ---------- almacenamiento (solo en este navegador) ----------
 let est = cargar();
 function cargar() {
-  try { const r = window.localStorage.getItem(CLAVE); if (r) return JSON.parse(r); } catch (e) { /* nada */ }
+  try {
+    const r = window.localStorage.getItem(CLAVE);
+    if (r) {
+      const e = JSON.parse(r);
+      // Las lecturas guardadas antes tenían el pH de la central: se reemplaza por el simulado.
+      for (const c of Object.values(e.capsulas || {})) for (const l of c.lecturas || []) l.ph = phSimulado(l.ts);
+      return e;
+    }
+  } catch (e) { /* nada */ }
   return { capsulas: {}, alertas: [], silenciada: false, ultimaOk: 0 };
 }
 function guardar() { try { window.localStorage.setItem(CLAVE, JSON.stringify(est)); } catch (e) { /* queda en memoria */ } }
@@ -44,13 +62,13 @@ async function sincronizar() {
   const r = await fetchRed(url + (url.includes('?') ? '&' : '?') + 'api=datos', { cache: 'no-store' });
   if (!r.ok) throw new Error('la app de las cápsulas respondió ' + r.status);
   const datos = await r.json();
-  let nuevas = 0, alertasNuevas = 0;
+  let nuevas = 0, alertasNuevas = 0, alertasCerradas = 0;
   for (const cap of datos.capsulas || []) {
     const c = est.capsulas[cap.id] || (est.capsulas[cap.id] = { lecturas: [] });
     c.ultima = { fecha: cap.fecha, online: !!cap.online, alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: num(cap.gas), lat: num(cap.lat), lon: num(cap.lon) };
     const conocidas = new Set(c.lecturas.map((l) => l.ts));
-    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: num(h.ph), temp: num(h.temp), hum: num(h.hum), co2: num(h.gas) })),
-      { ts: cap.fecha, ph: num(cap.ph), temp: num(cap.temp), hum: num(cap.hum), co2: num(cap.gas) }];
+    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: num(h.temp), hum: num(h.hum), co2: num(h.gas) })),
+      { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum), co2: num(cap.gas) }];
     for (const l of entrantes) {
       if (typeof l.ts !== 'number' || conocidas.has(l.ts)) continue;
       c.lecturas.push(l); conocidas.add(l.ts); nuevas++;
@@ -59,8 +77,12 @@ async function sincronizar() {
     const limite = Date.now() - 31 * DIA;
     c.lecturas = c.lecturas.filter((l) => l.ts >= limite);
 
-    // Alerta de aire: una por episodio, hasta que la reconozcas.
+    // Alerta de aire: una por episodio. No se puede descartar: se cierra sola cuando la cápsula,
+    // en línea, deja de marcar la alerta (el problema se solucionó).
     const nodoId = BASE_NODO + Number(cap.id);
+    if (cap.online && !cap.alerta) {
+      for (const a of est.alertas) if (a.nodo_id === nodoId && !a.reconocida) { a.reconocida = 1; alertasCerradas++; }
+    }
     if (cap.alerta && cap.online && !est.alertas.some((a) => a.nodo_id === nodoId && !a.reconocida)) {
       const ahora = Date.now();
       const valvula = Number(cap.valvula) >= 1;
@@ -78,6 +100,7 @@ async function sincronizar() {
   guardar();
   if (nuevas) emitir('datos');
   if (alertasNuevas) { emitir('alerta'); emitir('aviso'); }
+  else if (alertasCerradas) emitir('alerta');
 }
 
 // ---------- serie para los gráficos (igual que server/serie.js) ----------
@@ -167,7 +190,8 @@ async function responder(url, metodo, opciones) {
   if ((m = p.match(/^\/api\/alertas\/(\d+)\/reconocer$/)) && Number(m[1]) > BASE_ALERTA) {
     const a = est.alertas.find((x) => x.id === Number(m[1]));
     if (!a) return json({ error: 'Alerta no encontrada.' }, 404);
-    a.reconocida = 1; a.leido = 1; guardar();
+    if (!a.reconocida) return json({ error: 'La alerta de aire no se puede descartar: se cierra sola cuando la cápsula deja de detectarla.' }, 409);
+    a.leido = 1; guardar();
     return json({ ok: true });
   }
   if (p === '/api/avisos' && metodo === 'GET') {

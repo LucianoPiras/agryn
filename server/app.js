@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { VARIABLES, evaluar } from './umbrales.js';
 import { RANGOS, serie } from './serie.js';
-import { PATRONES, etiquetaVariable } from './patrones.js';
+import { PATRONES, etiquetaVariable, seCierraSola } from './patrones.js';
+import { cerrarResueltas } from './cierre.js';
 import { crearBus } from './eventos.js';
 import { diagnosticar, VENTANA_DIAGNOSTICO } from './diagnostico.js';
 
@@ -264,7 +265,11 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
 
   api.post('/alertas/:id/reconocer', (req, res) => {
     const id = idDe(req.params.id);
-    if (!id || !repo.reconocerAlerta(id)) return noEncontrado(res, 'Alerta');
+    const alerta = id && repo.alerta(id);
+    if (!alerta) return noEncontrado(res, 'Alerta');
+    // Rotura y fermentación no se descartan: se cierran solas cuando se soluciona el problema.
+    if (!alerta.reconocida && seCierraSola(alerta.variable)) return res.status(409).json({ error: 'Esta alerta no se puede descartar: se cierra sola cuando los valores vuelven a la normalidad.' });
+    repo.reconocerAlerta(id);
     res.json({ ok: true });
   });
 
@@ -292,6 +297,7 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
     const reglas = repo.umbrales();
     const rechazadas = [];
     let aceptadas = 0, alertasNuevas = 0, duplicadas = 0;
+    const nodosConDatos = [];
     repo.transaccion(() => {
       lote.forEach((it, indice) => {
         const deviceId = typeof it?.device_id === 'string' ? it.device_id.trim() : '';
@@ -302,6 +308,7 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
         const ts = typeof it.ts === 'number' && Number.isFinite(it.ts) ? Math.round(it.ts) : Date.now();
         if (!repo.guardarLectura(nodo.id, ts, valores)) return duplicadas++;
         aceptadas++;
+        nodosConDatos.push(nodo.id);
         for (const a of evaluar(valores, reglas)) {
           if (repo.alertaActiva(nodo.id, a.variable)) continue;
           repo.crearAlerta(nodo.id, a.variable, a.valor, a.nivel, ts, diagnosticoDe(nodo.id, ts));
@@ -309,10 +316,11 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
         }
       });
     });
+    const cerradas = cerrarResueltas(repo, nodosConDatos);
     // Las críticas se avisan ya; las de atención quedan para el ciclo de avisos si siguen sin reconocerse.
     if (notificador) notificador.procesar();
     if (aceptadas) bus.emitirATodos('datos', { aceptadas });
-    if (alertasNuevas) bus.emitirATodos('alerta', { nuevas: alertasNuevas });
+    if (alertasNuevas || cerradas) bus.emitirATodos('alerta', { nuevas: alertasNuevas, cerradas });
     res.status(rechazadas.length === lote.length ? 422 : 200).json({ aceptadas, duplicadas, rechazadas, alertas_nuevas: alertasNuevas });
   };
   app.post('/api/gateway/lecturas', (req, res) => {

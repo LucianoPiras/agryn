@@ -133,7 +133,8 @@ export function crearRepo(db) {
     alertas: q(`SELECT a.id, a.nodo_id, a.variable, a.valor, a.nivel, a.ts, a.reconocida, a.diagnostico, n.nombre AS nodo, s.id AS silobolsa_id, s.nombre AS silobolsa
       FROM alertas a JOIN nodos n ON n.id = a.nodo_id JOIN silobolsas s ON s.id = n.silobolsa_id
       WHERE a.reconocida = ? ORDER BY a.ts DESC LIMIT 200`),
-    alerta: q('SELECT id FROM alertas WHERE id = ?'),
+    alerta: q('SELECT id, nodo_id, variable, ts, reconocida FROM alertas WHERE id = ?'),
+    activasDeNodo: q('SELECT id, variable, ts FROM alertas WHERE nodo_id = ? AND reconocida = 0'),
     reconocer: q('UPDATE alertas SET reconocida = 1 WHERE id = ?'),
     suscripcionesDe: q('SELECT endpoint, p256dh, auth FROM suscripciones_push WHERE usuario = ?'),
     guardarSuscripcion: q('INSERT OR REPLACE INTO suscripciones_push (endpoint, usuario, p256dh, auth, creada) VALUES (?, ?, ?, ?, ?)'),
@@ -227,6 +228,8 @@ export function crearRepo(db) {
     },
     quitarSuscripcion(endpoint, usuario) { return st.quitarSuscripcion.run(endpoint, usuario).changes > 0; },
     alertas(reconocida) { return st.alertas.all(reconocida ? 1 : 0); },
+    alerta(id) { return st.alerta.get(id) || null; },
+    alertasActivasDe(nodoId) { return st.activasDeNodo.all(nodoId); },
     reconocerAlerta(id) {
       if (!st.alerta.get(id)) return false;
       st.reconocer.run(id);

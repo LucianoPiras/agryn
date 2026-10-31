@@ -30,6 +30,14 @@ Todo el texto de la interfaz va en español rioplatense (voseo: "Cambialo", "Pro
 - Cada alerta activa tiene su propio banner, uno debajo del otro: nunca se tapan entre sí.
 - El pH de las cápsulas NO se copia de la central (es simulado e irreal): se simula dentro del rango con `phSimulado` (`server/fuente.js` y `demo/envivo.js`, misma fórmula).
 
+## Cómo trabajar en equipo (Git)
+Luciano y Roberto trabajan en paralelo sobre el mismo repositorio. Cada pedido se hace sobre todo lo ya trabajado:
+1. Antes de empezar, traer `main` actualizado (`git fetch origin`) y crear una rama nueva desde `origin/main`. Nunca seguir sobre una rama vieja.
+2. Antes de tocar archivos, revisar si hay pull requests abiertos o ramas con cambios que no están en `main` y avisar si tocan los mismos archivos.
+3. Si se cambia algo de la página publicada, regenerar `docs/index.html` con `npm run build:demo && node scripts/armar-demo.mjs docs/index.html`. Si hay conflicto en ese archivo, se resuelve regenerándolo.
+4. Subir la rama y abrir un pull request. El merge lo hace una persona desde GitHub; recién ahí se ve en GitHub Pages (que publica desde `main`).
+5. No borrar archivos ni ramas sin confirmación explícita.
+
 ## Pendientes pensados
 - Firmware del ESP32 gateway LoRa (la API ya recibe lecturas en `POST /api/gateway/lecturas`).
 - La central (ESP32 con internet) manda datos cada 30 s a `POST /api/central/lecturas` y anomalías en hasta 3 s a `POST /api/central/anomalias`. La app no detecta anomalías: cuando llega una alarma, arma un diagnóstico orientativo con los factores de las 2 h previas (`server/diagnostico.js`). La pantalla recibe eventos en vivo por `GET /api/eventos`.

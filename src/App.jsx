@@ -811,8 +811,7 @@ export default class App extends React.Component {
       <div className="app" style={{ display: "flex", flexWrap: "wrap", minHeight: "100vh", background: "#F3F0E4", color: "#0F2A1F", fontFamily: "'Montserrat', system-ui, sans-serif", fontSize: "14px", lineHeight: "1.45" }}>
       <header className="barra">
       <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: "0" }}>
-      <img src="/logos/agryn-hoja-reversa.png" alt="" aria-hidden="true" style={{ width: "28px", height: "28px", flex: "none" }} />
-      <span style={{ font: "700 16px/1 'Inter', sans-serif", letterSpacing: "0.04em" }}>AGRYN</span>
+      <img src="/logos/agryn-logo.png" alt="AGRYN, inteligencia en cada bolsa" style={{ height: "36px", width: "auto", flex: "none", display: "block" }} />
       </div>
       <div style={{ display: "flex", gap: "8px" }}>
       <button type="button" className="btn" onClick={v.toggleAvisos} aria-expanded={v.avisosAbiertos} style={{ background: "transparent", color: "#FAF6E9", borderColor: "rgba(250,246,233,0.42)" }}>

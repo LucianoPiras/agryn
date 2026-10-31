@@ -33,7 +33,7 @@ input[type=range] { accent-color: #005A36; }
 .barra { display: none; }
 .menu-fondo { display: none; }
 @media (max-width: 767px) {
-  .barra { display: flex; flex: 0 0 100%; width: 100%; box-sizing: border-box; position: sticky; top: 0; z-index: 40; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; background: #005A36; color: #FAF6E9; }
+  .barra { display: flex; flex: 0 0 100%; width: 100%; box-sizing: border-box; position: sticky; top: 0; z-index: 40; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; background: linear-gradient(90deg, #FAF6E9 0%, #FAF6E9 27%, rgba(250,246,233,0.66) 34%, rgba(250,246,233,0.30) 41%, rgba(250,246,233,0.08) 47%, rgba(250,246,233,0) 52%), #005A36; color: #FAF6E9; min-height: 60px; }
   .side { position: fixed !important; top: 0; bottom: 0; left: 0; width: min(320px, 88vw) !important; z-index: 45; transform: translateX(-105%); transition: transform 0.25s ease; overflow-y: auto; box-shadow: 0 0 24px rgba(0,0,0,0.25); }
   .side.abierto { transform: none; }
   .menu-fondo.abierto { display: block; position: fixed; inset: 0; z-index: 44; background: rgba(15,42,31,0.55); }

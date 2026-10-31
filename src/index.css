@@ -44,3 +44,81 @@ input[type=range] { accent-color: #005A36; }
 @media (pointer: coarse) {
   button, input, select { min-height: 44px; }
 }
+
+/* ---------- Celular: cada dato a uno o dos toques ---------- */
+.silos-movil, .barra-abajo { display: none; }
+@media (max-width: 767px) {
+  /* Lugar para la barra de abajo */
+  .app main { padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important; }
+  .solo-escritorio { display: none; }
+  .despues-movil { order: 1; }   /* primero los datos; contenido, nodos y alertas después */
+
+  /* Silobolsas: una fila que se desliza con el dedo */
+  .silos-movil { display: flex; gap: 8px; overflow-x: auto; margin: -4px -16px 0; padding: 0 16px 4px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .silos-movil::-webkit-scrollbar { display: none; }
+  .silos-movil button { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 6px 14px; border-radius: 999px; border: 1px solid; font: 600 13px/1.15 'Montserrat', system-ui, sans-serif; cursor: pointer; text-align: left; }
+
+  /* Barra de abajo: Resumen y las cuatro variables, con su valor */
+  .barra-abajo { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 35; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background: #005A36; box-shadow: 0 -2px 12px rgba(15,42,31,0.18); }
+  .barra-abajo button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 56px; padding: 4px 2px; border-radius: 10px; border: 0; background: transparent; color: #FAF6E9; font: 600 11px/1.1 'Montserrat', system-ui, sans-serif; cursor: pointer; min-width: 0; }
+  .barra-abajo button[aria-pressed="true"] { background: #FAF6E9; color: #005A36; }
+  .barra-abajo .nombre { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .barra-abajo .punto { width: 7px; height: 7px; border-radius: 999px; flex: none; }
+  .barra-abajo .valor { font: 700 12px/1 'Inter', system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .barra-abajo button:focus-visible { outline: 2px solid #FAF6E9; outline-offset: -2px; }
+
+  /* Encabezado más corto */
+  .app main h1 { font-size: 28px !important; }
+
+  /* Alertas: todas visibles, pero compactas */
+  .banner-alerta { padding: 12px 14px !important; gap: 10px !important; }
+  .banner-alerta .icono-alerta { width: 32px !important; height: 32px !important; }
+  .banner-alerta .icono-alerta svg { width: 18px; height: 18px; }
+  .banner-alerta .titulo-alerta { font-size: 17px !important; }
+  .banner-alerta .detalle-alerta { font-size: 13px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .banner-alerta .btn { min-height: 44px; padding: 0 12px; font-size: 13px; }
+
+  /* Resumen: las cuatro variables en 2 x 2, cada tarjeta se toca entera */
+  .grilla-vars { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px !important; }
+  .tarjeta-var { position: relative; padding: 12px !important; gap: 8px !important; }
+  .tarjeta-var .cab-tarjeta { flex-direction: column; align-items: flex-start !important; gap: 6px !important; }
+  .tarjeta-var .cab-tarjeta h3 { font-size: 14px !important; }
+  .tarjeta-var .cab-tarjeta > span { font-size: 11px !important; padding: 3px 8px !important; }
+  .tarjeta-var .valor-tarjeta { font-size: 34px !important; }
+  .tarjeta-var .valor-tarjeta + span { font-size: 15px !important; }
+  .tarjeta-var .grafico-tarjeta { height: 44px !important; }
+  .tarjeta-var .extra-tarjeta { display: none !important; }
+  .tarjeta-var .tapa-tarjeta { min-height: 44px; padding: 0; border: 0; background: transparent; justify-content: flex-start; color: #005A36; font-size: 12px; }
+  .tarjeta-var .tapa-tarjeta::after { content: ''; position: absolute; inset: 0; border-radius: 12px; }   /* toda la tarjeta abre el detalle */
+  .tarjeta-var .tapa-tarjeta:focus-visible { outline: none; }
+  .tarjeta-var .tapa-tarjeta:focus-visible::after { outline: 2px solid #005A36; outline-offset: 2px; }
+
+  /* Detalle de una variable */
+  .valor-detalle { font-size: 52px !important; }
+  .grilla-stats { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px !important; }
+  .grilla-stats .stat { padding: 12px 14px !important; }
+  .grilla-stats .valor-stat { font-size: 22px !important; }
+}
+@media (max-width: 767px) {
+  /* Botones de la página publicada (demo): encima de la barra de abajo y debajo del menú */
+  .demo-simulador { bottom: calc(76px + env(safe-area-inset-bottom)) !important; right: 12px !important; z-index: 30 !important; }
+  .demo-liberacion { bottom: calc(128px + env(safe-area-inset-bottom)) !important; right: 12px !important; z-index: 30 !important; }
+  .demo-panel { bottom: calc(76px + env(safe-area-inset-bottom)) !important; max-height: 65vh !important; }
+}
+@media (max-width: 767px) {
+  .app main .kicker { font-size: 11px !important; line-height: 1.3 !important; }
+  /* Rango de tiempo: una barra a lo ancho */
+  .rango-grupo { display: grid !important; grid-template-columns: repeat(3, 1fr); width: 100%; box-sizing: border-box; }
+  .rango-grupo .btn { min-width: 0 !important; }
+  /* Nodos: una fila que se desliza con el dedo */
+  .nodos-chips { flex-wrap: nowrap !important; overflow-x: auto; margin: 0 -16px; padding: 0 16px 2px; scrollbar-width: none; }
+  .nodos-chips::-webkit-scrollbar { display: none; }
+  .nodos-chips .btn { flex: none; white-space: nowrap; }
+  /* Cartel de la demo «Liberando CO₂»: más chico en celular */
+  [data-liberando-co2] { font-size: 16px !important; padding: 6px 12px !important; margin: 8px 0 4px !important; border-width: 2px !important; }
+  /* En celular el «Simulador» ya incluye la rotura de prueba: este botón sobra y tapaba las alertas */
+  .demo-liberacion { display: none !important; }
+}
+@media (max-width: 767px) {
+  .demo-simulador { min-height: 44px !important; padding: 0 14px !important; font-size: 13px !important; }
+}

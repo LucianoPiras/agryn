@@ -10,7 +10,7 @@ export function BotonVerLiberacion() {
     if (window.__agrynAviso) window.__agrynAviso('Liberando CO₂', r.silo + ' · ' + r.nodo + ': los valores vuelven al objetivo.');
   };
   return (
-    <button type="button" onClick={tocar} style={{ position: 'fixed', right: 16, bottom: 72, minHeight: 44, padding: '8px 14px', borderRadius: 999, border: '1px solid rgba(15,42,31,0.35)', background: 'rgba(250,246,233,0.9)', color: '#4F6459', font: "500 13px 'Montserrat', sans-serif", cursor: 'pointer', zIndex: 40 }}>
+    <button type="button" className="demo-liberacion" onClick={tocar} style={{ position: 'fixed', right: 16, bottom: 72, minHeight: 44, padding: '8px 14px', borderRadius: 999, border: '1px solid rgba(15,42,31,0.35)', background: 'rgba(250,246,233,0.9)', color: '#4F6459', font: "500 13px 'Montserrat', sans-serif", cursor: 'pointer', zIndex: 40 }}>
       Ver liberación de CO₂
     </button>
   );
@@ -47,11 +47,11 @@ export default function PanelSimulador() {
   const estadoPermiso = { granted: 'Permitidas', denied: 'Bloqueadas en el navegador', default: 'Sin pedir', 'no-disponible': 'No disponibles en este navegador' }[permiso];
 
   if (!abierto) {
-    return <button type="button" onClick={() => setAbierto(true)} style={{ ...botonBase, position: 'fixed', right: 16, bottom: 16, background: colores.esmeralda, color: colores.fondo, border: 0, zIndex: 50 }}>Simulador</button>;
+    return <button type="button" className="demo-simulador" onClick={() => setAbierto(true)} style={{ ...botonBase, position: 'fixed', right: 16, bottom: 16, background: colores.esmeralda, color: colores.fondo, border: 0, zIndex: 50 }}>Simulador</button>;
   }
 
   return (
-    <aside aria-label="Simulador de la central" style={{ position: 'fixed', right: 16, bottom: 16, width: 'min(340px, calc(100vw - 32px))', maxHeight: '80vh', overflow: 'auto', background: colores.fondo, color: colores.texto, border: `2px solid ${colores.borde}`, borderRadius: 14, padding: 16, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', zIndex: 50, font: "400 14px/1.45 'Montserrat', sans-serif" }}>
+    <aside aria-label="Simulador de la central" className="demo-panel" style={{ position: 'fixed', right: 16, bottom: 16, width: 'min(340px, calc(100vw - 32px))', maxHeight: '80vh', overflow: 'auto', background: colores.fondo, color: colores.texto, border: `2px solid ${colores.borde}`, borderRadius: 14, padding: 16, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', zIndex: 50, font: "400 14px/1.45 'Montserrat', sans-serif" }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <strong style={{ font: "700 16px 'Inter', sans-serif" }}>Simulador de la central</strong>
         <button type="button" onClick={() => setAbierto(false)} style={{ ...botonBase, minHeight: 44, minWidth: 44, padding: 0, background: 'transparent', color: colores.texto, border: `1px solid ${colores.muted}` }} aria-label="Minimizar simulador">–</button>

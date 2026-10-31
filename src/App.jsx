@@ -21,6 +21,8 @@ const CONTENIDOS = ['Soja', 'Maíz', 'Trigo', 'Girasol', 'Sorgo', 'Cebada', 'For
 const SIN_SILO = { id: -1, name: 'Sin silobolsas', content: 'Sin definir', custom: '', nodes: [] };
 const SESION = 'agryn-sesion-v1';
 // Variables que marca cada patrón de riesgo en los nodos.
+// Nombres cortos para la barra inferior del celular.
+const CORTO = { ph: 'pH', temp: 'Temp.', hum: 'Hum.', co2: 'CO₂' };
 const PATRON_VARS = { rotura: ['co2', 'hum'], fermentacion: ['temp', 'co2'] };
 const CODE_TTL = 5 * 60 * 1000;
 // Pasa una silobolsa de la API al formato que usa la pantalla.
@@ -607,6 +609,8 @@ export default class App extends React.Component {
         sub: contentOf(b) + ' · ' + (mine.length ? (mine.length === 1 ? '1 alerta activa' : mine.length + ' alertas activas') : b.nodes.length + (b.nodes.length === 1 ? ' nodo' : ' nodos') + ' · todo normal'),
         subColor: worst === 'crit' ? '#FFB4A6' : (worst === 'warn' ? '#FFD98A' : 'rgba(250,246,233,0.82)'),
         dot: worst === 'ok' ? '#8CF0C4' : (worst === 'crit' ? '#FF9C8C' : '#FFD36E'),
+        dotClaro: worst === 'ok' ? '#1E8A5A' : (worst === 'crit' ? '#C8321F' : '#B7791F'),
+        estadoCorto: mine.length ? (mine.length === 1 ? '1 alerta' : mine.length + ' alertas') : 'Todo normal',
         pressed: b.id === bo.id, bg: b.id === bo.id ? SELF : 'transparent', border: b.id === bo.id ? SELB : 'transparent',
         pick: () => self.setState({ bag: b.id, node: null, cursor: null })
       };
@@ -614,7 +618,8 @@ export default class App extends React.Component {
     const varNav = VARS.map((v, vi) => {
       const x = pt(vi, N24 - 1, N24), st = self.status(x, v), sv = bo.nodes.some((nd) => alertaDe(nd.id, v.key)) ? 'crit' : (st === 'ok' ? 'ok' : self.sev(x, v));
       return {
-        name: v.name, value: fmt(x, v.dec) + unitTxt(v),
+        name: v.name, corto: CORTO[v.key] || v.name, value: fmt(x, v.dec) + unitTxt(v),
+        estadoTxt: sv === 'ok' ? 'normal' : (sv === 'crit' ? 'alerta crítica' : 'atención'),
         valColor: sv === 'ok' ? 'rgba(250,246,233,0.85)' : (sv === 'crit' ? '#FFB4A6' : '#FFD98A'),
         dot: sv === 'ok' ? '#8CF0C4' : (sv === 'crit' ? '#FF9C8C' : '#FFD36E'),
         pressed: S.view === v.key, bg: S.view === v.key ? SELF : 'transparent', border: S.view === v.key ? SELB : 'transparent',
@@ -937,8 +942,36 @@ export default class App extends React.Component {
       </button>
       </div>
       </aside>
+      <nav className="barra-abajo" aria-label="Variables">
+      <button type="button" onClick={v.goOverview} aria-pressed={v.overviewPressed}>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </svg>
+      <span className="nombre">Resumen</span>
+      </button>
+      {v.varNav.map((n, $index) => (<React.Fragment key={$index}>
+      <button type="button" onClick={n.pick} aria-pressed={n.pressed} aria-label={n.name + ': ' + n.value + ', ' + n.estadoTxt}>
+      <span className="nombre"><span className="punto" style={{ background: n.dot }} aria-hidden="true" />{n.corto}</span>
+      <span className="valor" style={{ color: n.pressed ? undefined : n.valColor }}>{n.value}</span>
+      </button>
+      </React.Fragment>))}
+      </nav>
       <div className={"menu-fondo" + (v.menuAbierto ? " abierto" : "")} onClick={v.cerrarMenu} aria-hidden="true" />
       <main style={{ flex: "999 1 560px", minWidth: "0", boxSizing: "border-box", padding: "clamp(16px, 3vw, 32px)", display: "flex", flexDirection: "column", gap: "24px" }}>
+      <div className="silos-movil" role="group" aria-label="Silobolsas">
+      {v.bagList.map((b, $index) => (<React.Fragment key={$index}>
+      <button type="button" onClick={b.pick} aria-pressed={b.pressed} style={{ background: b.pressed ? "#005A36" : "#FAF6E9", color: b.pressed ? "#FAF6E9" : "#0F2A1F", borderColor: b.pressed ? "#005A36" : "#DCE5E0" }}>
+      <span style={{ width: "9px", height: "9px", borderRadius: "999px", flex: "none", background: b.pressed ? b.dot : b.dotClaro }} aria-hidden="true" />
+      <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: "0" }}>
+      <span style={{ fontWeight: "700", whiteSpace: "nowrap" }}>{b.name}</span>
+      <span style={{ fontSize: "11px", fontWeight: "500", opacity: "0.85", whiteSpace: "nowrap" }}>{b.estadoCorto}</span>
+      </span>
+      </button>
+      </React.Fragment>))}
+      </div>
       {v.avisoApp && (<div role="alert" style={{ padding: "10px 12px", borderRadius: "8px", background: "#FDECE8", border: "1px solid #C8321F", color: "#8F2113", fontSize: "13px", fontWeight: "600" }}>
       {v.avisoApp}
       </div>)}
@@ -1047,14 +1080,14 @@ export default class App extends React.Component {
       </section>)}
       <header style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "flex-end", justifyContent: "space-between" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "6px", minWidth: "0" }}>
-      <p style={{ margin: "0", font: "600 13px/1 'Montserrat', sans-serif", letterSpacing: "0.1em", textTransform: "uppercase", color: "#4F6459" }}>
+      <p className="kicker" style={{ margin: "0", font: "600 13px/1 'Montserrat', sans-serif", letterSpacing: "0.1em", textTransform: "uppercase", color: "#4F6459" }}>
       {v.bagName} · {v.contentLabel} · {v.scopeLabel}
       </p>
       <h1 style={{ margin: "0", font: "700 clamp(30px, 5vw, 44px)/1.05 'Inter', sans-serif", letterSpacing: "-0.03em" }}>
       {v.headline}
       </h1>
       {v.isOverview && (<>
-      <p style={{ margin: "4px 0 0", maxWidth: "56ch", color: "#4F6459" }}>
+      <p className="solo-escritorio" style={{ margin: "4px 0 0", maxWidth: "56ch", color: "#4F6459" }}>
       Seguimos el pH, la temperatura, la humedad y el CO₂ de cada nodo dentro de la silobolsa, y te avisamos al instante si algo se sale de lo normal.
       </p>
       </>)}
@@ -1065,7 +1098,7 @@ export default class App extends React.Component {
       </span>
       Datos de la central · {v.ultimaRecepcion}
       </span>
-      <div role="group" aria-label="Rango de tiempo" style={{ display: "inline-flex", padding: "4px", gap: "4px", background: "#FAF6E9", border: "1px solid #DCE5E0", borderRadius: "10px" }}>
+      <div role="group" aria-label="Rango de tiempo" className="rango-grupo" style={{ display: "inline-flex", padding: "4px", gap: "4px", background: "#FAF6E9", border: "1px solid #DCE5E0", borderRadius: "10px" }}>
       {v.rangeList.map((r, $index) => (<React.Fragment key={$index}>
       <button className="btn" onClick={r.pick} aria-pressed={r.pressed} style={{ minWidth: "76px", borderColor: "transparent", background: `${r.bg}`, color: `${r.fg}` }}>
       {r.label}
@@ -1074,8 +1107,8 @@ export default class App extends React.Component {
       </div>
       </div>
       </header>
-      <div role="group" aria-label="Ver datos de" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" }}>
-      <span style={{ fontSize: "13px", color: "#4F6459", marginRight: "4px" }}>
+      <div role="group" aria-label="Ver datos de" className="nodos-chips" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" }}>
+      <span className="solo-escritorio" style={{ fontSize: "13px", color: "#4F6459", marginRight: "4px" }}>
       Ver datos de:
       </span>
       {v.nodeChips.map((c, $index) => (<React.Fragment key={$index}>
@@ -1089,8 +1122,8 @@ export default class App extends React.Component {
       {v.hasBanner && (<>
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       {v.banners.map((b) => (<React.Fragment key={b.id}>
-      <section role="alert" aria-live="assertive" className="flash" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: `${b.bg}`, border: `1px solid ${b.border}`, color: `${b.fg}` }}>
-      <span style={{ width: "44px", height: "44px", flex: "none", borderRadius: "999px", background: `${b.iconBg}`, color: `${b.iconFg}`, display: "grid", placeItems: "center" }} aria-hidden="true">
+      <section role="alert" aria-live="assertive" className="flash banner-alerta" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: `${b.bg}`, border: `1px solid ${b.border}`, color: `${b.fg}` }}>
+      <span className="icono-alerta" style={{ width: "44px", height: "44px", flex: "none", borderRadius: "999px", background: `${b.iconBg}`, color: `${b.iconFg}`, display: "grid", placeItems: "center" }} aria-hidden="true">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3 2.5 20h19L12 3Z" />
       <path d="M12 10v4.5M12 17.5h.01" />
@@ -1100,10 +1133,10 @@ export default class App extends React.Component {
       <p style={{ margin: "0", font: "700 13px/1 'Montserrat', sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", color: `${b.accent}` }}>
       {b.kicker}
       </p>
-      <p style={{ margin: "6px 0 0", font: "700 22px/1.15 'Inter', sans-serif", letterSpacing: "-0.02em" }}>
+      <p className="titulo-alerta" style={{ margin: "6px 0 0", font: "700 22px/1.15 'Inter', sans-serif", letterSpacing: "-0.02em" }}>
       {b.title}
       </p>
-      <p style={{ margin: "4px 0 0", color: `${b.detailColor}` }}>
+      <p className="detalle-alerta" style={{ margin: "4px 0 0", color: `${b.detailColor}` }}>
       {b.detail}
       </p>
       </div>
@@ -1127,7 +1160,7 @@ export default class App extends React.Component {
       </div>
       </>)}
       {v.isOverview && (<>
-      <section aria-label="Contenido de la silobolsa" style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: "#FAF6E9", border: "1px solid #DCE5E0" }}>
+      <section aria-label="Contenido de la silobolsa" className="despues-movil" style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: "#FAF6E9", border: "1px solid #DCE5E0" }}>
       <div style={{ flex: "1 1 220px", minWidth: "0" }}>
       <p style={{ margin: "0", fontSize: "12px", letterSpacing: "0.1em", textTransform: "uppercase", color: "#4F6459" }}>
       Contenido almacenado
@@ -1135,7 +1168,7 @@ export default class App extends React.Component {
       <p style={{ margin: "6px 0 0", font: "700 26px/1.1 'Inter', sans-serif", letterSpacing: "-0.02em" }}>
       {v.contentLabel}
       </p>
-      <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#4F6459" }}>
+      <p className="solo-escritorio" style={{ margin: "4px 0 0", fontSize: "13px", color: "#4F6459" }}>
       Cambialo cuando cargues otro cultivo en {v.bagName}.
       </p>
       </div>
@@ -1182,10 +1215,10 @@ export default class App extends React.Component {
       </div>
       </>)}
       </section>
-      <section aria-label="Variables medidas" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(250px, 100%), 1fr))", gap: "16px" }}>
+      <section aria-label="Variables medidas" className="grilla-vars" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(250px, 100%), 1fr))", gap: "16px" }}>
       {v.cards.map((c, $index) => (<React.Fragment key={$index}>
-      <article style={{ display: "flex", flexDirection: "column", gap: "14px", padding: "20px", borderRadius: "12px", background: "#FAF6E9", border: `1px solid ${c.border}` }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+      <article className="tarjeta-var" style={{ display: "flex", flexDirection: "column", gap: "14px", padding: "20px", borderRadius: "12px", background: "#FAF6E9", border: `1px solid ${c.border}` }}>
+      <div className="cab-tarjeta" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
       <h3 style={{ margin: "0", font: "600 16px/1 'Montserrat', sans-serif", color: "#2E453A" }}>
       {c.name}
       </h3>
@@ -1196,14 +1229,14 @@ export default class App extends React.Component {
       </span>
       </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-      <span style={{ font: "700 52px/0.95 'Inter', sans-serif", letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", color: `${c.valColor}` }}>
+      <span className="valor-tarjeta" style={{ font: "700 52px/0.95 'Inter', sans-serif", letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", color: `${c.valColor}` }}>
       {c.value}
       </span>
       <span style={{ font: "500 20px/1 'Inter', sans-serif", color: "#4F6459" }}>
       {c.unit}
       </span>
       </div>
-      <div style={{ position: "relative", height: "84px" }}>
+      <div className="grafico-tarjeta" style={{ position: "relative", height: "84px" }}>
       <svg viewBox="0 0 600 100" preserveAspectRatio="none" style={{ position: "absolute", inset: "0", width: "100%", height: "100%" }} aria-hidden="true">
       <rect x="0" y={c.bandY} width="600" height={c.bandH} fill="rgba(0,90,54,0.08)" />
       <path d={c.area} fill="rgba(0,90,54,0.08)" />
@@ -1212,7 +1245,7 @@ export default class App extends React.Component {
       <path d={c.last} fill="none" stroke={c.lastColor} strokeWidth="9" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
       </svg>
       </div>
-      <dl style={{ margin: "0", display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px" }}>
+      <dl className="extra-tarjeta" style={{ margin: "0", display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px" }}>
       <div>
       <dt style={{ fontSize: "12px", color: "#4F6459" }}>
       Mín.
@@ -1238,19 +1271,19 @@ export default class App extends React.Component {
       </dd>
       </div>
       </dl>
-      <p style={{ margin: "0", fontSize: "13px", fontWeight: "600", color: `${c.noteColor}` }}>
+      <p className="extra-tarjeta" style={{ margin: "0", fontSize: "13px", fontWeight: "600", color: `${c.noteColor}` }}>
       {c.note}
       </p>
-      <p style={{ margin: "-8px 0 0", fontSize: "12px", color: "#4F6459" }}>
+      <p className="extra-tarjeta" style={{ margin: "-8px 0 0", fontSize: "12px", color: "#4F6459" }}>
       Rango habitual {c.rangeText}
       </p>
-      <button className="btn" onClick={c.open} aria-label={c.openLabel}>
+      <button className="btn tapa-tarjeta" onClick={c.open} aria-label={c.openLabel}>
       Ver detalle
       </button>
       </article>
       </React.Fragment>))}
       </section>
-      <section aria-label="Nodos de la silobolsa" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      <section aria-label="Nodos de la silobolsa" className="despues-movil" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", justifyContent: "space-between", gap: "8px" }}>
       <div>
       <h2 style={{ margin: "0", font: "700 24px/1 'Inter', sans-serif", letterSpacing: "-0.02em" }}>
@@ -1313,7 +1346,7 @@ export default class App extends React.Component {
       </React.Fragment>))}
       </div>
       </section>
-      <section aria-label="Alertas" style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "20px", borderRadius: "12px", background: "#FAF6E9", border: "1px solid #DCE5E0" }}>
+      <section aria-label="Alertas" className="despues-movil" style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "20px", borderRadius: "12px", background: "#FAF6E9", border: "1px solid #DCE5E0" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
       <h2 style={{ margin: "0", font: "700 24px/1 'Inter', sans-serif", letterSpacing: "-0.02em" }}>
       Alertas activas
@@ -1374,7 +1407,7 @@ export default class App extends React.Component {
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: "16px" }}>
       <div>
       <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
-      <span style={{ font: "700 68px/0.95 'Inter', sans-serif", letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", color: `${v.d.valColor}` }}>
+      <span className="valor-detalle" style={{ font: "700 68px/0.95 'Inter', sans-serif", letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", color: `${v.d.valColor}` }}>
       {v.d.value}
       </span>
       <span style={{ font: "500 26px/1 'Inter', sans-serif", color: "#4F6459" }}>
@@ -1448,13 +1481,13 @@ export default class App extends React.Component {
       </button>
       </div>
       </section>
-      <section aria-label="Estadísticas del período" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))", gap: "16px" }}>
+      <section aria-label="Estadísticas del período" className="grilla-stats" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))", gap: "16px" }}>
       {v.d.stats.map((s, $index) => (<React.Fragment key={$index}>
-      <div style={{ padding: "16px 20px", borderRadius: "12px", background: "#FAF6E9", border: "1px solid #DCE5E0" }}>
+      <div className="stat" style={{ padding: "16px 20px", borderRadius: "12px", background: "#FAF6E9", border: "1px solid #DCE5E0" }}>
       <p style={{ margin: "0", fontSize: "13px", color: "#4F6459" }}>
       {s.label}
       </p>
-      <p style={{ margin: "6px 0 0", font: "700 30px/1 'Inter', sans-serif", letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums", color: `${s.color}` }}>
+      <p className="valor-stat" style={{ margin: "6px 0 0", font: "700 30px/1 'Inter', sans-serif", letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums", color: `${s.color}` }}>
       {s.value}
       </p>
       </div>
@@ -1536,9 +1569,9 @@ export default class App extends React.Component {
       </section>
       </div>
       </>)}
-      <section aria-label="Origen de los datos" style={{ padding: "16px 20px", borderRadius: "12px", border: "1px dashed #B9CCC2", marginTop: "auto" }}>
+      <section aria-label="Origen de los datos" className="despues-movil" style={{ padding: "16px 20px", borderRadius: "12px", border: "1px dashed #B9CCC2", marginTop: "auto" }}>
       <p style={{ margin: "0", fontSize: "13px", color: "#4F6459" }}>
-      La central manda los datos cada 30 segundos. Las alertas saltan al instante y quedan hasta que las reconozcas. Las alertas saltan al instante y quedan hasta que las reconozcas.
+      La central manda los datos cada 30 segundos. Las alertas saltan al instante. Las de rotura y fermentación quedan a la vista hasta que se soluciona el problema; las demás, hasta que las reconozcas.
       </p>
       </section>
       </main>

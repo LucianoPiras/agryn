@@ -2,14 +2,16 @@
 //
 // La demo corre sola en el navegador con datos simulados (demo/api-local.js). Este módulo le suma
 // una silobolsa más, «Cápsulas AGRYN (en vivo)», con los datos reales de las cápsulas del Heltec:
-// la central los sube a la app de Apps Script y acá se leen cada 30 s desde ?api=datos.
+// la central los sube a la app de Apps Script y acá se leen cada 15 s desde ?api=datos.
+// El estado «sin señal» usa la misma regla que la app del celular y avanza solo con el reloj.
 //
 // No necesita compilarse: scripts/armar-demo.mjs lo agrega al final del HTML, después de la demo,
 // y envuelve fetch y EventSource para responder las rutas de la silobolsa en vivo.
 // Para probar otra URL sin tocar el código: agregá ?fuente=<url de Apps Script> a la dirección.
 
 const FUENTE_PREDETERMINADA = 'https://script.google.com/macros/s/AKfycbzMfk8j1Q4qsvsCr0kwvBb2uk2Crt7xV_5lg_UmU8Hx4fcw5hS_rzTzD_UEsaap8Y1i/exec';
-const CADA = 30 * 1000;
+const CADA = 15 * 1000;
+const LIMITE_PREDETERMINADO = 150;   // s sin datos para «sin señal» (si la app no manda el suyo)
 const CLAVE = 'agryn-envivo-v1';
 const SILO_ID = 900;                 // ids altos para no chocar con los de la demo
 const BASE_NODO = 9000;              // nodo de la cápsula N = 9000 + N
@@ -63,9 +65,13 @@ async function sincronizar() {
   if (!r.ok) throw new Error('la app de las cápsulas respondió ' + r.status);
   const datos = await r.json();
   let nuevas = 0, alertasNuevas = 0, alertasCerradas = 0;
+  const reglas = await umbralesVigentes();
   for (const cap of datos.capsulas || []) {
     const c = est.capsulas[cap.id] || (est.capsulas[cap.id] = { lecturas: [] });
-    c.ultima = { fecha: cap.fecha, online: !!cap.online, alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: num(cap.gas), lat: num(cap.lat), lon: num(cap.lon) };
+    c.ultima = { fecha: cap.fecha, online: !!cap.online, motivo: cap.motivo || '', hace: num(cap.hace) ?? 0, recibido: Date.now(),
+      limite: num(datos.limiteCapsula) ?? LIMITE_PREDETERMINADO,
+      alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: num(cap.gas), lat: num(cap.lat), lon: num(cap.lon),
+      ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum) };
     const conocidas = new Set(c.lecturas.map((l) => l.ts));
     const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: num(h.temp), hum: num(h.hum), co2: num(h.gas) })),
       { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum), co2: num(cap.gas) }];
@@ -80,14 +86,11 @@ async function sincronizar() {
     // Alerta de aire: una por episodio. No se puede descartar: se cierra sola cuando la cápsula,
     // en línea, deja de marcar la alerta (el problema se solucionó).
     const nodoId = BASE_NODO + Number(cap.id);
-    if (cap.online && !cap.alerta) {
-      for (const a of est.alertas) if (a.nodo_id === nodoId && !a.reconocida) { a.reconocida = 1; alertasCerradas++; }
-    }
-    if (cap.alerta && cap.online && !est.alertas.some((a) => a.nodo_id === nodoId && !a.reconocida)) {
+    if (cap.alerta && enLinea(c) && !est.alertas.some((a) => a.nodo_id === nodoId && a.variable === 'rotura' && !a.reconocida)) {
       const ahora = Date.now();
       const valvula = Number(cap.valvula) >= 1;
       est.alertas.push({
-        id: BASE_ALERTA + est.alertas.length + 1, nodo_id: nodoId, variable: 'rotura', valor: num(cap.gas) ?? 0, nivel: 'crit',
+        id: nuevoIdAlerta(), nodo_id: nodoId, variable: 'rotura', etiqueta: 'Alerta de aire', valor: num(cap.gas) ?? 0, nivel: 'crit',
         ts: cap.fecha || ahora, reconocida: 0, creada: ahora, notificada: 1, leido: 0,
         diagnostico: 'Alerta de aire: la cápsula ' + cap.id + ' detectó un aumento brusco de gases dentro de la bolsa.' +
           (valvula ? ' La válvula de CO₂ se abrió 3 segundos.' : '')
@@ -95,12 +98,149 @@ async function sincronizar() {
       alertasNuevas++;
       if (window.__agrynAviso) window.__agrynAviso('Alerta de aire · Cápsula ' + cap.id, valvula ? 'Válvula abierta: se inyectó CO₂.' : 'Revisá la silobolsa.');
     }
+    // La alerta de aire de la cápsula se cierra sola cuando la cápsula, en línea, deja de marcarla.
+    if (!cap.alerta && enLinea(c)) {
+      for (const a of est.alertas) if (a.nodo_id === nodoId && a.origen !== 'valores' && a.variable === 'rotura' && !a.reconocida) { a.reconocida = 1; alertasCerradas++; }
+    }
+    // Alertas por los valores: rotura, fermentación y cada variable fuera de su rango.
+    if (enLinea(c) && reglas.length) {
+      const r = revisarValores(Number(cap.id), c, reglas);
+      alertasNuevas += r.nuevas; alertasCerradas += r.cerradas;
+    }
   }
   est.ultimaOk = Date.now();
   guardar();
   if (nuevas) emitir('datos');
   if (alertasNuevas) { emitir('alerta'); emitir('aviso'); }
   else if (alertasCerradas) emitir('alerta');
+  revisarSenal();
+}
+
+// ---------- señal: «en línea» o «sin señal», igual que la app del celular ----------
+// En línea solo si la app de Apps Script la marcó en línea Y desde ese dato no pasó el límite.
+// Como se recalcula con el reloj, pasa sola a «sin señal» aunque no llegue nada nuevo
+// (por ejemplo, si se corta internet o la app de Apps Script no responde).
+function segundosSinDatos(c) {
+  const u = c.ultima;
+  if (!u) return Infinity;
+  return u.hace + Math.max(0, (Date.now() - u.recibido) / 1000);
+}
+function enLinea(c) { return !!(c.ultima && c.ultima.online && segundosSinDatos(c) < c.ultima.limite); }
+function nuevoIdAlerta() { return BASE_ALERTA + 1 + est.alertas.reduce((m, a) => Math.max(m, a.id - BASE_ALERTA), 0); }
+function haceTexto(seg) {
+  if (seg < 60) return Math.round(seg) + ' s';
+  if (seg < 3600) return Math.floor(seg / 60) + ' min';
+  if (seg < 86400) return Math.floor(seg / 3600) + ' h';
+  return Math.floor(seg / 86400) + ' d';
+}
+
+// Crea un aviso «Sin señal» cuando una cápsula deja de reportar y lo cierra solo cuando vuelve.
+function revisarSenal() {
+  let cambio = false;
+  for (const cid of idsCapsulas()) {
+    const c = est.capsulas[cid], nodoId = BASE_NODO + cid;
+    const abierta = est.alertas.find((a) => a.nodo_id === nodoId && a.variable === 'sin_datos' && !a.reconocida);
+    const vivo = enLinea(c);
+    if (c.enLinea !== vivo) { c.enLinea = vivo; cambio = true; }
+    if (!vivo && !abierta && c.ultima) {
+      const ahora = Date.now(), motivo = c.ultima.motivo || 'no llegan datos nuevos';
+      est.alertas.push({
+        id: nuevoIdAlerta(), nodo_id: nodoId, variable: 'sin_datos', etiqueta: 'Sin señal', valor: 0, nivel: 'warn',   // advertencia: no se libera CO₂
+        ts: ahora, reconocida: 0, creada: ahora, notificada: 1, leido: 0,
+        diagnostico: 'Sin señal: ' + motivo + '. Último dato hace ' + haceTexto(segundosSinDatos(c)) + '; los valores que ves son los últimos recibidos.'
+      });
+      if (window.__agrynAviso) window.__agrynAviso('Sin señal · Cápsula ' + cid, 'La cápsula dejó de mandar datos.');
+      cambio = true;
+    } else if (vivo && abierta) {
+      abierta.reconocida = 1; abierta.leido = 1;   // volvió la señal: se cierra sola
+      cambio = true;
+    }
+  }
+  if (cambio) { guardar(); emitir('datos'); emitir('alerta'); emitir('aviso'); }
+}
+
+// ---------- alertas por los valores de la cápsula ----------
+// Usa los mismos umbrales que se editan en la app. Como en el resto de AGRYN:
+//   rotura o ingreso de aire = CO₂ bajo el mínimo y humedad sobre el máximo;
+//   fermentación             = temperatura y CO₂ sobre el máximo.
+// Esas dos no se pueden descartar: se cierran solas cuando las variables del patrón vuelven al rango
+// y se mantienen así SOSTENIDO ms. Si una variable está fuera de rango y no forma parte de un patrón
+// activo, se avisa sola (esa sí se puede descartar, y no vuelve a aparecer hasta un nuevo episodio).
+const PATRON_VARS = { rotura: ['co2', 'hum'], fermentacion: ['temp', 'co2'] };
+const PATRON_NOMBRE = { rotura: 'Posible rotura o ingreso de aire', fermentacion: 'Posible fermentación' };
+const SOSTENIDO = 60 * 1000;
+const NOMBRES = { ph: ['pH', ''], temp: ['Temperatura', ' °C'], hum: ['Humedad', ' %'], co2: ['CO₂', ' %'] };
+
+async function umbralesVigentes() {
+  try { const r = await fetchDemo('/api/umbrales'); return r.ok ? await r.json() : []; } catch (e) { return []; }
+}
+const regla = (reglas, k) => reglas.find((x) => x.key === k);
+function lado(x, r) { if (x == null || !r) return null; return x > r.max ? 'alto' : (x < r.min ? 'bajo' : null); }
+const coma = (x, d) => x.toFixed(d).replace('.', ',');
+function textoValor(k, x, r) {
+  const [nombre, u] = NOMBRES[k], d = k === 'ph' || k === 'co2' ? 2 : 1;
+  return nombre + ' ' + coma(x, d) + u + (x > r.max ? ' (sobre el máximo de ' + coma(r.max, d) + u + ')' : ' (bajo el mínimo de ' + coma(r.min, d) + u + ')');
+}
+// Último valor conocido de cada variable (el historial a veces trae campos vacíos).
+function actual(c) {
+  const v = {};
+  for (let i = c.lecturas.length - 1; i >= 0 && Object.keys(v).length < VARS.length; i--) {
+    const l = c.lecturas[i];
+    for (const k of VARS) if (v[k] == null && l[k] != null) v[k] = l[k];
+  }
+  return v;
+}
+function resuelto(c, a, reglas) {
+  let inicio = null, ultimo = null;
+  for (const l of c.lecturas) {
+    if (l.ts <= a.ts) continue;
+    const ok = PATRON_VARS[a.variable].every((k) => l[k] == null || lado(l[k], regla(reglas, k)) == null);
+    if (!ok) inicio = null; else if (inicio == null) inicio = l.ts;
+    ultimo = l.ts;
+  }
+  return inicio != null && ultimo - inicio >= SOSTENIDO;
+}
+function revisarValores(cid, c, reglas) {
+  const nodoId = BASE_NODO + cid, ahora = Date.now(), v = actual(c);
+  const activa = (variable) => est.alertas.find((a) => a.nodo_id === nodoId && a.variable === variable && !a.reconocida);
+  const ts = c.lecturas.length ? c.lecturas[c.lecturas.length - 1].ts : ahora;
+  let nuevas = 0, cerradas = 0;
+  // 1) Patrones que se solucionaron: se cierran solos.
+  for (const a of est.alertas) {
+    if (a.nodo_id !== nodoId || a.reconocida || a.origen !== 'valores' || !PATRON_VARS[a.variable]) continue;
+    if (resuelto(c, a, reglas)) { a.reconocida = 1; cerradas++; }
+  }
+  // 2) Patrones nuevos.
+  const L = (k) => lado(v[k], regla(reglas, k));
+  const patrones = { rotura: L('co2') === 'bajo' && L('hum') === 'alto', fermentacion: L('temp') === 'alto' && L('co2') === 'alto' };
+  for (const [tipo, hay] of Object.entries(patrones)) {
+    if (!hay || activa(tipo)) continue;
+    est.alertas.push({
+      id: nuevoIdAlerta(), nodo_id: nodoId, variable: tipo, etiqueta: PATRON_NOMBRE[tipo], origen: 'valores', valor: v.co2, nivel: 'crit',
+      ts, reconocida: 0, creada: ahora, notificada: 1, leido: 0,
+      diagnostico: PATRON_NOMBRE[tipo] + ' en la cápsula ' + cid + ': ' + PATRON_VARS[tipo].map((k) => textoValor(k, v[k], regla(reglas, k))).join(', ') +
+        '. No se puede descartar: se cierra sola cuando los valores vuelven al rango.'
+    });
+    nuevas++;
+    if (window.__agrynAviso) window.__agrynAviso(PATRON_NOMBRE[tipo] + ' · Cápsula ' + cid, 'Revisá la silobolsa.');
+  }
+  // 3) Variables sueltas fuera de rango que no explica un patrón activo.
+  c.episodio = c.episodio || {};
+  const cubiertas = new Set(Object.keys(PATRON_VARS).filter((t) => activa(t)).flatMap((t) => PATRON_VARS[t]));
+  for (const k of VARS) {
+    const r = regla(reglas, k), l = lado(v[k], r);
+    const abierta = activa(k);
+    if (!l) { c.episodio[k] = false; if (abierta) { abierta.reconocida = 1; cerradas++; } continue; }   // volvió al rango
+    if (cubiertas.has(k) || abierta || c.episodio[k]) continue;
+    const span = r.max - r.min, desvio = l === 'alto' ? v[k] - r.max : r.min - v[k];
+    est.alertas.push({
+      id: nuevoIdAlerta(), nodo_id: nodoId, variable: k, etiqueta: NOMBRES[k][0], origen: 'valores', valor: v[k], nivel: desvio > span * 0.25 ? 'crit' : 'warn',
+      ts, reconocida: 0, creada: ahora, notificada: 1, leido: 0, diagnostico: null
+    });
+    c.episodio[k] = true;   // si la descartás, no vuelve hasta que el valor regrese al rango y salga de nuevo
+    nuevas++;
+  }
+  return { nuevas, cerradas };
 }
 
 // ---------- serie para los gráficos (igual que server/serie.js) ----------
@@ -132,6 +272,14 @@ function serie(lecturas, rango, ahora = Date.now()) {
   }
   return { rango, n, paso, desde: inicio, hasta: ahora, valores };
 }
+// La app muestra como «valor actual» el último punto de la serie. Sin esto sería el promedio
+// de la última media hora y no coincidiría con la app del celular, que muestra el último dato.
+function serieConUltimo(lecturas, rango, ahora = Date.now()) {
+  const r = serie(lecturas, rango, ahora);
+  const ult = lecturas[lecturas.length - 1];
+  if (ult && ult.ts >= r.desde) for (const k of VARS) if (ult[k] != null) r.valores[k][r.n - 1] = ult[k];
+  return r;
+}
 
 // ---------- respuestas para la silobolsa en vivo ----------
 const json = (data, status = 200) => new Response(status === 204 ? null : JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
@@ -142,17 +290,19 @@ function siloVivo() {
   return {
     id: SILO_ID, nombre: 'Cápsulas AGRYN (en vivo)', contenido: 'Soja', creada: 0,
     nodos: idsCapsulas().map((cid) => {
-      const l = est.capsulas[cid].lecturas;
-      return { id: BASE_NODO + cid, silobolsa_id: SILO_ID, nombre: 'Cápsula ' + cid, device_id: 'cap-' + cid, ultima_ts: l.length ? l[l.length - 1].ts : null };
+      const c = est.capsulas[cid], l = c.lecturas;
+      const ultimaTs = (c.ultima && c.ultima.fecha) || (l.length ? l[l.length - 1].ts : null);
+      return { id: BASE_NODO + cid, silobolsa_id: SILO_ID, nombre: 'Cápsula ' + cid + (enLinea(c) ? ' · en línea' : ' · sin señal'),
+        device_id: 'cap-' + cid, ultima_ts: ultimaTs };
     })
   };
 }
 function alertaVista(a) {
-  return { ...a, nodo: 'Cápsula ' + (a.nodo_id - BASE_NODO), silobolsa: 'Cápsulas AGRYN (en vivo)', silobolsa_id: SILO_ID, etiqueta: 'Alerta de aire', descripcion: a.diagnostico };
+  return { ...a, nodo: 'Cápsula ' + (a.nodo_id - BASE_NODO), silobolsa: 'Cápsulas AGRYN (en vivo)', silobolsa_id: SILO_ID, etiqueta: a.etiqueta || 'Alerta de aire', descripcion: a.diagnostico };
 }
 function avisoVista(a) {
   return { id: a.id, leido: a.leido, creada: a.creada, alerta_id: a.id, variable: a.variable, valor: a.valor, nivel: a.nivel, ts: a.ts,
-    nodo_id: a.nodo_id, nodo: 'Cápsula ' + (a.nodo_id - BASE_NODO), silobolsa_id: SILO_ID, silobolsa: 'Cápsulas AGRYN (en vivo)', etiqueta: 'Alerta de aire', descripcion: a.diagnostico };
+    nodo_id: a.nodo_id, nodo: 'Cápsula ' + (a.nodo_id - BASE_NODO), silobolsa_id: SILO_ID, silobolsa: 'Cápsulas AGRYN (en vivo)', etiqueta: a.etiqueta || 'Alerta de aire', descripcion: a.diagnostico };
 }
 
 async function responder(url, metodo, opciones) {
@@ -178,7 +328,7 @@ async function responder(url, metodo, opciones) {
     if (!RANGOS[rango]) return json({ error: 'Rango inválido. Usá 24h, 7d o 30d.' }, 400);
     const ahora = Date.now();
     const desde = ahora - RANGOS[rango].n * RANGOS[rango].paso;
-    return json(serie(l.filter((x) => x.ts >= desde), rango, ahora));
+    return json(serieConUltimo(l.filter((x) => x.ts >= desde), rango, ahora));
   }
   // Alertas y avisos: se suman las de las cápsulas a las de la demo.
   if (p === '/api/alertas' && metodo === 'GET') {
@@ -190,8 +340,8 @@ async function responder(url, metodo, opciones) {
   if ((m = p.match(/^\/api\/alertas\/(\d+)\/reconocer$/)) && Number(m[1]) > BASE_ALERTA) {
     const a = est.alertas.find((x) => x.id === Number(m[1]));
     if (!a) return json({ error: 'Alerta no encontrada.' }, 404);
-    if (!a.reconocida) return json({ error: 'La alerta de aire no se puede descartar: se cierra sola cuando la cápsula deja de detectarla.' }, 409);
-    a.leido = 1; guardar();
+    if (!a.reconocida && PATRON_VARS[a.variable]) return json({ error: 'Esta alerta no se puede descartar: se cierra sola cuando se soluciona el problema.' }, 409);
+    a.reconocida = 1; a.leido = 1; guardar();
     return json({ ok: true });
   }
   if (p === '/api/avisos' && metodo === 'GET') {
@@ -241,7 +391,8 @@ function emitir(nombre) {
     constructor(...a) { super(...a); conexiones.push(this); }
     close() { const i = conexiones.indexOf(this); if (i >= 0) conexiones.splice(i, 1); if (super.close) super.close(); }
   };
-  const ciclo = () => sincronizar().catch((e) => console.warn('Cápsulas en vivo:', e.message));
+  const ciclo = () => sincronizar().catch((e) => { console.warn('Cápsulas en vivo:', e.message); revisarSenal(); });
   ciclo();
   setInterval(ciclo, CADA);
+  setInterval(revisarSenal, 5000);   // aunque no llegue nada, a los pocos segundos pasa a «sin señal»
 })();

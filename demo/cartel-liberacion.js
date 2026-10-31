@@ -12,14 +12,16 @@ function carteles() {
   for (const bloque of document.querySelectorAll('section[role="alert"]')) {
     if (!bloque.innerText.toUpperCase().includes('ALERTA CRÍTICA')) continue;
     const boton = [...bloque.querySelectorAll('button')].find((b) => ['Reconocer', 'Descartar'].includes(b.textContent.trim())) || null;
-    encontrados.push({ boton, bloque });
+    // La liberación es de las silobolsas simuladas: no se muestra en las alertas de las cápsulas reales.
+    encontrados.push({ boton, bloque, vivo: bloque.innerText.includes('Cápsulas AGRYN (en vivo)') });
   }
   return encontrados;
 }
 
 function actualizar() {
-  for (const { boton, bloque } of carteles()) {
+  for (const { boton, bloque, vivo } of carteles()) {
     if (boton && boton.textContent !== 'Descartar') boton.textContent = 'Descartar';
+    if (vivo) continue;
     // La columna de texto es el padre del rótulo «ALERTA CRÍTICA».
     const rotulo = [...bloque.querySelectorAll('*')].find((e) => e.childElementCount === 0 && e.textContent.trim().toUpperCase() === 'ALERTA CRÍTICA');
     const columna = rotulo ? rotulo.parentElement : bloque;

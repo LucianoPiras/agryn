@@ -308,6 +308,9 @@ function avisoVista(a) {
 async function responder(url, metodo, opciones) {
   const p = url.split('?')[0].replace(/\/$/, '');
   let m;
+  // Sin haber ingresado con el correo y la contraseña, no se muestra nada de las cápsulas:
+  // la demo responde (y rechaza) todos los pedidos.
+  if (window.__agrynSesionValida && !window.__agrynSesionValida(opciones)) return fetchDemo(url, opciones);
   // Silobolsas: la en vivo va primera, así es la que se ve al entrar.
   if (p === '/api/silobolsas' && metodo === 'GET') {
     const r = await fetchDemo(url, opciones);

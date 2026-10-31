@@ -642,6 +642,8 @@ export default class App extends React.Component {
       setAuth({ enviando: true, err: '', aviso: '' });
       const r = await llamar('/api/login', { cuerpo: { email: email, password: A.pw } });
       if (!r.ok) { setAuth({ enviando: false, err: r.error, pw: r.status === 401 ? '' : A.pw }); return; }
+      // La página publicada no manda código por correo: si el ingreso ya devuelve la sesión, se entra directo.
+      if (r.data.token) return entrar(r.data.token, r.data.email || email);
       setAuth({ enviando: false, paso: 'codigo', email: email, pw: '', code: '', vence: Date.now() + CODE_TTL, err: '', aviso: 'Te mandamos el código a ' + email + '. Si no lo ves, revisá la carpeta de spam.' });
     };
     const reenviarCodigo = async () => {
@@ -656,12 +658,15 @@ export default class App extends React.Component {
       setAuth({ enviando: true, err: '', aviso: '' });
       const r = await llamar('/api/verify', { cuerpo: { email: A.email, code: A.code } });
       if (!r.ok) { setAuth({ enviando: false, code: '', err: r.error, ...(r.data.volverLogin ? { paso: 'login', email: '', vence: 0 } : {}) }); return; }
-      try { window.localStorage.setItem(SESION, r.data.token); } catch (e) { /* sin almacenamiento: la sesión dura lo que la pestaña */ }
-      self._token = r.data.token;
-      setAuth({ enviando: false, user: r.data.email, token: r.data.token, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' });
+      entrar(r.data.token, r.data.email);
+    };
+    function entrar(token, email) {
+      try { window.localStorage.setItem(SESION, token); } catch (e) { /* sin almacenamiento: la sesión dura lo que la pestaña */ }
+      self._token = token;
+      setAuth({ enviando: false, user: email, token: token, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' });
       self.cargarTodo();
       self.conectarEventos();
-    };
+    }
     const volverLogin = () => setAuth({ paso: 'login', code: '', err: '', aviso: '' });
     const cerrarSesion = async () => {
       await llamar('/api/logout', { token: self._token });
@@ -786,7 +791,7 @@ export default class App extends React.Component {
       </div>
       </>) : (
       <button type="button" className="btn primary" onClick={v.pedirCodigo} disabled={v.enviando} style={{ width: "100%" }}>
-      {v.enviando ? "Enviando código…" : "Continuar"}
+      {v.enviando ? "Verificando…" : "Continuar"}
       </button>
       )}
       </main>

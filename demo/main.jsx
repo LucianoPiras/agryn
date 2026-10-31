@@ -4,7 +4,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from '../src/App.jsx';
 import '../src/index.css';
-import { instalarApiDemo } from './api-local.js';
+import { instalarApiDemo, sesionValida } from './api-local.js';
 import PanelSimulador, { BotonVerLiberacion } from './panel.jsx';
 import { activarCartelLiberacion } from './cartel-liberacion.js';
 
@@ -21,12 +21,22 @@ if (typeof window.Notification !== 'undefined') {
   });
 }
 
+// El simulador y el botón de la liberación solo aparecen después de ingresar con el correo y la contraseña.
+function SoloConIngreso({ children }) {
+  const adentro = () => { try { return sesionValida(window.localStorage.getItem('agryn-sesion-v1')); } catch (e) { return false; } };
+  const [ok, setOk] = React.useState(adentro);
+  React.useEffect(() => { const t = setInterval(() => setOk(adentro()), 500); return () => clearInterval(t); }, []);
+  return ok ? children : null;
+}
+
 instalarApiDemo();
 activarCartelLiberacion();
 createRoot(document.getElementById('root')).render(
   <>
     <App />
-    <PanelSimulador />
-    <BotonVerLiberacion />
+    <SoloConIngreso>
+      <PanelSimulador />
+      <BotonVerLiberacion />
+    </SoloConIngreso>
   </>
 );

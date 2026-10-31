@@ -10,7 +10,7 @@ export function BotonVerLiberacion() {
     if (window.__agrynAviso) window.__agrynAviso('Liberando CO₂', r.silo + ' · ' + r.nodo + ': los valores vuelven al objetivo.');
   };
   return (
-    <button type="button" onClick={tocar} style={{ position: 'fixed', left: 16, bottom: 16, minHeight: 44, padding: '8px 14px', borderRadius: 999, border: '1px solid rgba(15,42,31,0.35)', background: 'rgba(250,246,233,0.9)', color: '#4F6459', font: "500 13px 'Montserrat', sans-serif", cursor: 'pointer', zIndex: 40 }}>
+    <button type="button" onClick={tocar} style={{ position: 'fixed', right: 16, bottom: 72, minHeight: 44, padding: '8px 14px', borderRadius: 999, border: '1px solid rgba(15,42,31,0.35)', background: 'rgba(250,246,233,0.9)', color: '#4F6459', font: "500 13px 'Montserrat', sans-serif", cursor: 'pointer', zIndex: 40 }}>
       Ver liberación de CO₂
     </button>
   );

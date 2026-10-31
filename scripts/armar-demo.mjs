@@ -18,5 +18,9 @@ html = html.replace(/<script type="module"[^>]*src="\.\/([^"]+)"[^>]*><\/script>
 html = html.replace(/<link rel="stylesheet"[^>]*href="\.\/([^"]+)"[^>]*>/g, (_, ruta) => `<style>${fs.readFileSync(path.join(raiz, ruta), 'utf8')}</style>`);
 html = html.replace(/<link rel="icon"[^>]*>/, `<link rel="icon" type="image/png" href="${uri('agryn-hoja.png')}" />`);
 
+// Datos en vivo de las cápsulas (app de Apps Script): va después de la demo, sin compilar.
+const envivo = fs.readFileSync(path.resolve('demo/envivo.js'), 'utf8');
+html = html.replace('</body>', `<script type="module">${envivo.replace(/<\/script/gi, '<\\/script')}</script>\n</body>`);
+
 fs.writeFileSync(salida, html, 'utf8');
 console.log('escrito', salida, (html.length / 1024).toFixed(0), 'KB');

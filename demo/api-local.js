@@ -9,11 +9,15 @@ import { diagnosticar, VENTANA_DIAGNOSTICO } from '../server/diagnostico.js';
 import { PATRONES, etiquetaVariable, seCierraSola, patronResuelto } from '../server/patrones.js';
 
 const CLAVE_STORE = 'agryn-demo-v1';
-const SESION_LOCAL = 'agryn-sesion-v1';
 const MINUTO = 60 * 1000;
 const HORA = 60 * MINUTO;
-const CONTRASENA = '12345';
-const USUARIO = 'demo@agryn.test';
+const CONTRASENA = '12345';   // la que se pide para borrar una silobolsa
+// Ingreso a la página publicada: solo este correo y esta contraseña. La página no tiene servidor,
+// así que la comparación se hace en el navegador contra la huella SHA-256 de la contraseña (no está
+// escrita en el código). Sirve para que no entre cualquiera, pero no es una seguridad fuerte.
+const USUARIO = 'agryn.silobolsa@gmail.com';
+const HUELLA_CLAVE = 'd2d58fd9b732d7e9b6345466d7e658b1fabe91e45930e897b7d367b3942e9780';
+const CLAVE_INGRESO = 'agryn-ingreso-v1';   // sesión válida de este navegador (se borra al cerrar sesión)
 const DIA = 24 * HORA;
 
 // Umbrales por defecto, los mismos que la base del servidor.
@@ -158,13 +162,35 @@ function avisosVista() {
 
 const idDe = (x) => { const n = Number(x); return Number.isInteger(n) && n > 0 ? n : null; };
 
-async function resolver(ruta, metodo, cuerpo, url) {
+// ---------- ingreso ----------
+async function huella(texto) {
+  const datos = new TextEncoder().encode(texto);
+  const h = await crypto.subtle.digest('SHA-256', datos);
+  return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+function sesionGuardada() { try { return window.localStorage.getItem(CLAVE_INGRESO); } catch (e) { return null; } }
+export function sesionValida(token) { const g = sesionGuardada(); return !!token && !!g && token === g; }
+function tokenDe(opciones) {
+  const h = opciones && opciones.headers;
+  const a = h && (typeof h.get === 'function' ? h.get('Authorization') : (h.Authorization || h.authorization));
+  return a && a.startsWith('Bearer ') ? a.slice(7) : null;
+}
+
+async function resolver(ruta, metodo, cuerpo, url, token) {
   const p = ruta.replace(/\/$/, '');
   let m;
+  if (p === '/api/login' && metodo === 'POST') {
+    const email = String(cuerpo?.email || '').trim().toLowerCase();
+    const ok = email === USUARIO && (await huella(String(cuerpo?.password || ''))) === HUELLA_CLAVE;
+    if (!ok) return error(401, 'Correo o contraseña incorrectos.');
+    const nuevo = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, '0')).join('');
+    try { window.localStorage.setItem(CLAVE_INGRESO, nuevo); } catch (e) { /* sin almacenamiento */ }
+    return json({ ok: true, token: nuevo, email: USUARIO });
+  }
+  if (p === '/api/logout') { try { window.localStorage.removeItem(CLAVE_INGRESO); } catch (e) { /* nada */ } return json({ ok: true }); }
+  // Todo lo demás exige haber ingresado con el correo y la contraseña.
+  if (!sesionValida(token)) return error(401, 'Ingresá con tu correo y tu contraseña.');
   if (p === '/api/sesion') return json({ email: USUARIO });
-  if (p === '/api/logout') return json({ ok: true });
-  if (p === '/api/login' || p === '/api/codigo/reenviar') return json({ ok: true, destino: USUARIO });
-  if (p === '/api/verify') return json({ token: 'demo', email: USUARIO });
   if (p === '/api/eventos/ticket') return json({ ticket: 'demo' });
   if (p === '/api/push/clave' || p === '/api/push/suscribir') return error(503, 'Las notificaciones push no están disponibles en la demostración.');
 
@@ -354,8 +380,8 @@ const ETIQUETAS = { rotura: 'Posible rotura o ingreso de aire', fermentacion: 'P
 
 // Reemplaza fetch para las rutas /api/ y el canal de eventos en vivo, que en la demo se simula con latidos.
 export function instalarApiDemo() {
-  // La demo arranca con sesión iniciada: no hace falta correo ni código.
-  try { if (!window.localStorage.getItem(SESION_LOCAL)) window.localStorage.setItem(SESION_LOCAL, 'demo'); } catch (e) { /* sin almacenamiento */ }
+  // La página no arranca con sesión: hay que ingresar con el correo y la contraseña.
+  window.__agrynSesionValida = (opciones) => sesionValida(tokenDe(opciones));
   const fetchReal = window.fetch.bind(window);
   window.fetch = async (entrada, opciones = {}) => {
     const url = typeof entrada === 'string' ? entrada : entrada.url;
@@ -364,7 +390,7 @@ export function instalarApiDemo() {
     let cuerpo;
     try { cuerpo = opciones.body ? JSON.parse(opciones.body) : undefined; } catch (e) { cuerpo = undefined; }
     await new Promise((ok) => setTimeout(ok, 40));
-    return resolver(url.split('?')[0], metodo, cuerpo, url);
+    return resolver(url.split('?')[0], metodo, cuerpo, url, tokenDe(opciones));
   };
   window.EventSource = class {
     constructor() { this.listeners = {}; oyentes.push(this); }

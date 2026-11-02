@@ -122,3 +122,6 @@ input[type=range] { accent-color: #005A36; }
 @media (max-width: 767px) {
   .demo-simulador { min-height: 44px !important; padding: 0 14px !important; font-size: 13px !important; }
 }
+@media (max-width: 767px) {
+  .central-estado { border-radius: 12px !important; }   /* en dos renglones, la píldora se ve mejor con esquinas más rectas */
+}

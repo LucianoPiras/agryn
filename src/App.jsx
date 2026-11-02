@@ -30,7 +30,9 @@ function desdeApi(x) {
   const conocido = CONTENIDOS.includes(x.contenido);
   return {
     id: x.id, name: x.nombre, content: conocido ? x.contenido : 'Otro', custom: conocido ? '' : x.contenido,
-    nodes: x.nodos.map((n) => ({ id: n.id, name: n.nombre, device: n.device_id, ultimaTs: n.ultima_ts }))
+    nodes: x.nodos.map((n) => ({ id: n.id, name: n.nombre, device: n.device_id, ultimaTs: n.ultima_ts })),
+    // Centrales que mandan los datos de esta silobolsa (si la API las informa).
+    centrales: (x.centrales || []).map((c) => ({ nombre: c.nombre, enLinea: !!c.en_linea, ultimoTs: c.ultimo_ts || null, wifi: c.wifi_rssi ?? null, nodosEnLinea: c.capsulas_en_linea ?? null, nodos: c.capsulas ?? null }))
   };
 }
 function contentOf(b) { const c = b.content || 'Sin definir'; return c === 'Otro' ? ((b.custom || '').trim() || 'Otro') : c; }
@@ -633,6 +635,17 @@ export default class App extends React.Component {
     }));
     const ultimaMax = Math.max(0, ...bags.flatMap((b) => b.nodes.map((n) => n.ultimaTs || 0)));
     const ultimaRecepcion = ultimaMax ? 'última lectura hace ' + haceTxt(Date.now() - ultimaMax) : 'sin lecturas todavía';
+    // ---- estado de la central de la silobolsa elegida: en línea o sin señal (no solo los nodos) ----
+    const wifiTxt = (r) => (r == null ? '' : (r >= -60 ? 'Wi-Fi buena' : (r >= -75 ? 'Wi-Fi regular' : 'Wi-Fi débil')));
+    const centrales = (bo.centrales || []).map((c) => {
+      const hace = c.ultimoTs ? 'último dato hace ' + haceTxt(Date.now() - c.ultimoTs) : '';
+      const nodos = c.nodos != null ? (c.nodosEnLinea || 0) + ' de ' + c.nodos + (c.nodos === 1 ? ' nodo en línea' : ' nodos en línea') : '';
+      const detalle = (c.enLinea ? [wifiTxt(c.wifi), nodos, hace] : [hace || 'todavía no mandó datos']).filter(Boolean).join(' · ');
+      return {
+        nombre: /^central/i.test(c.nombre) ? c.nombre : 'Central ' + c.nombre, enLinea: c.enLinea, estado: c.enLinea ? 'En línea' : 'Sin señal', detalle: detalle,
+        bg: c.enLinea ? '#E4EDE8' : '#FDECE8', border: c.enLinea ? '#B9CCC2' : 'rgba(200,50,31,0.45)', fg: c.enLinea ? '#005A36' : '#8F2113', dot: c.enLinea ? '#1E8A5A' : '#C8321F'
+      };
+    });
 
     // ---- inicio de sesión: el servidor valida y envía el código por correo ----
     const A = S.auth;
@@ -680,7 +693,7 @@ export default class App extends React.Component {
     const restan = Math.max(0, A.vence - Date.now());
 
     return {
-      bagName: bo.name, scopeLabel, ultimaRecepcion,
+      bagName: bo.name, scopeLabel, ultimaRecepcion, centrales, hayCentrales: centrales.length > 0,
       logueado: !!A.user, usuario: A.user || '', avisoApp: S.avisoApp, nuevoNodo: S.nuevoNodo, onNuevoNodo, onNuevoNodoKey,
       avisosList, preferenciasList, noLeidos: S.noLeidos, avisosAbiertos: S.avisosAbiertos,
       menuAbierto: S.menuAbierto,
@@ -1092,11 +1105,21 @@ export default class App extends React.Component {
       </>)}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px" }}>
+      {v.hayCentrales ? v.centrales.map((c, $index) => (<React.Fragment key={$index}>
+      <span role="status" className="central-estado" style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "6px 12px", borderRadius: "999px", background: `${c.bg}`, border: `1px solid ${c.border}`, color: `${c.fg}`, fontSize: "13px", lineHeight: "1.3" }}>
+      <span className={c.enLinea ? "pulse" : ""} style={{ width: "9px", height: "9px", flex: "none", borderRadius: "999px", background: `${c.dot}` }} aria-hidden="true">
+      </span>
+      <span>
+      <strong>{c.nombre} · {c.estado}</strong>{c.detalle ? " · " + c.detalle : ""}
+      </span>
+      </span>
+      </React.Fragment>)) : (
       <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "#4F6459" }}>
       <span className="pulse" style={{ width: "8px", height: "8px", borderRadius: "999px", background: "#005A36" }} aria-hidden="true">
       </span>
       Datos de la central · {v.ultimaRecepcion}
       </span>
+      )}
       <div role="group" aria-label="Rango de tiempo" className="rango-grupo" style={{ display: "inline-flex", padding: "4px", gap: "4px", background: "#FAF6E9", border: "1px solid #DCE5E0", borderRadius: "10px" }}>
       {v.rangeList.map((r, $index) => (<React.Fragment key={$index}>
       <button className="btn" onClick={r.pick} aria-pressed={r.pressed} style={{ minWidth: "76px", borderColor: "transparent", background: `${r.bg}`, color: `${r.fg}` }}>

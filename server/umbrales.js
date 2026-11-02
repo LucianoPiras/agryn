@@ -9,7 +9,10 @@ export const VARIABLES = [
   objetivo('ph', 'pH', '', 7, 2),
   objetivo('temp', 'Temperatura', '°C', 17, 1),
   objetivo('hum', 'Humedad', '%', 12, 1),
-  objetivo('co2', 'CO₂', '%', 6.5, 2)
+  objetivo('co2', 'CO₂', '%', 6.5, 2),
+  // Etanol (lo mide la cápsula, en ppm): en un grano sano casi no hay; si sube, es señal de fermentación.
+  // Rango de referencia a validar con el equipo técnico (se edita desde la app).
+  { key: 'etanol', nombre: 'Etanol', unidad: 'ppm', objetivo: 5, min: 0, max: 20 }
 ];
 
 // Devuelve las alertas de una lectura según los umbrales vigentes (reglas: { key, min, max }).

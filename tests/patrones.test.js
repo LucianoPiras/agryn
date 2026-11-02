@@ -113,3 +113,13 @@ test('la alerta de rotura se cierra sola cuando los valores vuelven al rango y s
   await llamar('POST', '/api/central/lecturas', { cuerpo: [lectura(7, 6.5, 12)], clave: CLAVE_CENTRAL });
   assert.equal(await activa(), undefined, 'se cerró sola');
 });
+
+test('el etanol llega por la central y salta una alerta si pasa el máximo', async () => {
+  const silo = await llamar('POST', '/api/silobolsas', { cuerpo: { nombre: 'Silo Etanol', contenido: 'Maíz' }, token });
+  await llamar('POST', `/api/silobolsas/${silo.data.id}/nodos`, { cuerpo: { nombre: 'Nodo E', device_id: 'ETA-1' }, token });
+  const r = await llamar('POST', '/api/central/lecturas', { cuerpo: [{ device_id: 'ETA-1', ph: 7, temp: 17, hum: 12, co2: 6.5, etanol: 45 }], clave: CLAVE_CENTRAL });
+  assert.equal(r.data.aceptadas, 1);
+  const alerta = (await llamar('GET', '/api/alertas', { token })).data.find((a) => a.nodo === 'Nodo E');
+  assert.equal(alerta.variable, 'etanol');
+  assert.equal(alerta.etiqueta, 'Etanol');
+});

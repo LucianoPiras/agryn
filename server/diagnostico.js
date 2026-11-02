@@ -9,7 +9,7 @@ export const VENTANA_DIAGNOSTICO = 2 * 60 * 60 * 1000;
 const MINIMO_LECTURAS = 6;
 
 // Cambio mínimo, en la unidad de cada variable, para considerarlo un cambio real y no ruido.
-const CAMBIO_MINIMO = { ph: 0.2, temp: 1, hum: 1, co2: 0.2 };
+const CAMBIO_MINIMO = { ph: 0.2, temp: 1, hum: 1, co2: 0.2, etanol: 2 };
 
 const promedio = (xs) => xs.reduce((s, x) => s + x, 0) / xs.length;
 

@@ -4,6 +4,7 @@
 //
 // Campos que usamos: temp, hum y gas (que es el CO₂ dentro de la bolsa, en %).
 // El gas a veces llega con signo negativo: se guarda siempre su valor absoluto (módulo).
+// etanol (en ppm) se guarda tal como llega, si la cápsula lo manda.
 // El pH que manda la central es simulado y no es real, así que NO se copia: la app lo simula
 // alrededor del objetivo, siempre dentro del rango habitual (phSimulado).
 // La lectura más nueva y el historial se guardan sin repetir (la base ignora las marcas de tiempo ya cargadas).
@@ -25,7 +26,7 @@ export function phSimulado(ts, objetivo = PH.objetivo) {
 const numero = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 
 export function lecturaDeCapsula(cap, ts = cap.fecha) {
-  return { ph: phSimulado(ts), temp: numero(cap.temp), hum: numero(cap.hum), co2: numero(cap.gas) == null ? null : Math.abs(cap.gas) };
+  return { ph: phSimulado(ts), temp: numero(cap.temp), hum: numero(cap.hum), co2: numero(cap.gas) == null ? null : Math.abs(cap.gas), etanol: numero(cap.etanol) };
 }
 
 // Lee la API una vez y guarda lo nuevo. Devuelve cuántas lecturas se agregaron.
@@ -38,10 +39,10 @@ export async function sincronizarFuente({ url, repo, bus, fetchFn = fetch }) {
   for (const cap of datos.capsulas || []) {
     const nodo = repo.nodoPorDevice(PREFIJO_CAPSULA + cap.id);
     if (!nodo) continue;
-    const lecturas = [...(cap.hist || []).map((h) => ({ ts: h.t, ...lecturaDeCapsula({ temp: h.temp, hum: h.hum, gas: h.gas }, h.t) })), { ts: cap.fecha, ...lecturaDeCapsula(cap) }];
+    const lecturas = [...(cap.hist || []).map((h) => ({ ts: h.t, ...lecturaDeCapsula({ temp: h.temp, hum: h.hum, gas: h.gas, etanol: h.etanol }, h.t) })), { ts: cap.fecha, ...lecturaDeCapsula(cap) }];
     for (const l of lecturas) {
       if (typeof l.ts !== 'number') continue;
-      if (repo.guardarLectura(nodo.id, Math.round(l.ts), { ph: l.ph, temp: l.temp, hum: l.hum, co2: l.co2 })) { nuevas++; nodosConDatos.push(nodo.id); }
+      if (repo.guardarLectura(nodo.id, Math.round(l.ts), { ph: l.ph, temp: l.temp, hum: l.hum, co2: l.co2, etanol: l.etanol })) { nuevas++; nodosConDatos.push(nodo.id); }
     }
   }
   const cerradas = cerrarResueltas(repo, nodosConDatos);

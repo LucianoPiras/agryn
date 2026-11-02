@@ -72,3 +72,14 @@ test('el CO₂ se guarda siempre positivo (módulo del gas)', async () => {
   const l = repo.lecturasEntre(repo.nodoPorDevice('cap-3').id, 0, Date.now());
   assert.deepEqual(l.map((x) => x.co2), [76.8, null, 0.2]);
 });
+
+test('el etanol de la cápsula se guarda junto a las demás variables', async () => {
+  const repo = crearRepo(abrirBase(':memory:'));
+  const silo = repo.crearSilobolsa('Silo Etanol', 'Soja');
+  repo.crearNodo(silo.id, 'Cápsula 4', 'cap-4');
+  const t0 = Date.now() - HORA;
+  const { fetchFn } = fuenteFalsa({ capsulas: [{ id: 4, fecha: t0 + 60000, temp: 17, hum: 12, gas: 6.5, etanol: 12.5, hist: [{ t: t0, temp: 17, hum: 12, gas: 6.5, etanol: 3 }, { t: t0 + 30000, temp: 17, hum: 12, gas: 6.5 }] }] });
+  await sincronizarFuente({ url: URL_FUENTE, repo, fetchFn });
+  const l = repo.lecturasEntre(repo.nodoPorDevice('cap-4').id, 0, Date.now());
+  assert.deepEqual(l.map((x) => x.etanol), [3, null, 12.5]);
+});

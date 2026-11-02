@@ -18,7 +18,7 @@ const BASE_NODO = 9000;              // nodo de la cápsula N = 9000 + N
 const BASE_ALERTA = 90000;
 const MIN = 60 * 1000, DIA = 24 * 60 * MIN;
 const RANGOS = { '24h': { n: 48, paso: 30 * MIN }, '7d': { n: 84, paso: 120 * MIN }, '30d': { n: 90, paso: 480 * MIN } };
-const VARS = ['ph', 'temp', 'hum', 'co2'];
+const VARS = ['ph', 'temp', 'hum', 'co2', 'etanol'];   // etanol: en ppm, si la cápsula lo manda (campo «etanol»)
 
 // pH: el que manda la central es simulado y no es real, así que NO se copia. Se simula acá,
 // oscilando suave alrededor del objetivo (7,0), entre 6,67 y 7,33: siempre dentro del rango habitual (6 a 8).
@@ -89,8 +89,8 @@ async function sincronizar() {
       alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: co2(cap.gas), lat: num(cap.lat), lon: num(cap.lon),
       ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum) };
     const conocidas = new Set(c.lecturas.map((l) => l.ts));
-    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: num(h.temp), hum: num(h.hum), co2: co2(h.gas) })),
-      { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum), co2: co2(cap.gas) }];
+    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: num(h.temp), hum: num(h.hum), co2: co2(h.gas), etanol: num(h.etanol) })),
+      { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum), co2: co2(cap.gas), etanol: num(cap.etanol) }];
     for (const l of entrantes) {
       if (typeof l.ts !== 'number' || conocidas.has(l.ts)) continue;
       c.lecturas.push(l); conocidas.add(l.ts); nuevas++;
@@ -204,7 +204,7 @@ function revisarSenal() {
 const PATRON_VARS = { rotura: ['co2', 'hum'], fermentacion: ['temp', 'co2'] };
 const PATRON_NOMBRE = { rotura: 'Posible rotura o ingreso de aire', fermentacion: 'Posible fermentación' };
 const SOSTENIDO = 60 * 1000;
-const NOMBRES = { ph: ['pH', ''], temp: ['Temperatura', ' °C'], hum: ['Humedad', ' %'], co2: ['CO₂', ' %'] };
+const NOMBRES = { ph: ['pH', ''], temp: ['Temperatura', ' °C'], hum: ['Humedad', ' %'], co2: ['CO₂', ' %'], etanol: ['Etanol', ' ppm'] };
 
 // Se leen directo de la demo: pedirlos por /api/umbrales exige la sesión (desde la pantalla de ingreso)
 // y sin umbrales no saltaba ninguna alerta por valores.

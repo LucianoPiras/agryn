@@ -59,7 +59,7 @@ input[type=range] { accent-color: #005A36; }
   .silos-movil button { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 6px 14px; border-radius: 999px; border: 1px solid; font: 600 13px/1.15 'Montserrat', system-ui, sans-serif; cursor: pointer; text-align: left; }
 
   /* Barra de abajo: Resumen y las cuatro variables, con su valor */
-  .barra-abajo { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 35; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background: #005A36; box-shadow: 0 -2px 12px rgba(15,42,31,0.18); }
+  .barra-abajo { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 35; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background: #005A36; box-shadow: 0 -2px 12px rgba(15,42,31,0.18); }
   .barra-abajo button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 56px; padding: 4px 2px; border-radius: 10px; border: 0; background: transparent; color: #FAF6E9; font: 600 11px/1.1 'Montserrat', system-ui, sans-serif; cursor: pointer; min-width: 0; }
   .barra-abajo button[aria-pressed="true"] { background: #FAF6E9; color: #005A36; }
   .barra-abajo .nombre { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }

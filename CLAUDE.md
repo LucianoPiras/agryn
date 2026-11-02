@@ -1,7 +1,7 @@
 # AGRYN Monitoreo: contexto para Claude Code
 
 ## Qué es
-App web de monitoreo interno de silobolsas inteligentes de AGRYN. Cada silobolsa tiene varios nodos; cada nodo mide pH, temperatura, humedad y CO₂. Hay historial en gráficos, detalle por variable y alertas instantáneas cuando un valor sale de su rango habitual.
+App web de monitoreo interno de silobolsas inteligentes de AGRYN. Cada silobolsa tiene varios nodos; cada nodo mide pH, temperatura, humedad, CO₂ y etanol. Hay historial en gráficos, detalle por variable y alertas instantáneas cuando un valor sale de su rango habitual.
 
 ## La empresa
 - AGRYN la forma un grupo de 7 alumnos.
@@ -32,8 +32,9 @@ Todo el texto de la interfaz va en español rioplatense (voseo: "Cambialo", "Pro
 - Cápsulas en vivo sin señal: un solo «Sin señal» por desconexión (si se descarta, no vuelve hasta reconectarse y cortarse de nuevo). Mientras no hay señal, sus alertas por valores quedan en pausa (no se muestran, `vigente()` en `demo/envivo.js`); al volver reaparecen las mismas, sin avisos nuevos. Los umbrales de la demo se leen con `window.__agrynUmbrales` (por `/api/umbrales` exigen sesión).
 - Cartel «Liberando CO₂» (solo en la página publicada, `demo/cartel-liberacion.js`): se decide por el nodo de cada alerta (`data-nodo` en el banner). Nodo simulado: mientras se está corrigiendo. Cápsula real: solo en línea y con la válvula abierta según la central (`window.__agrynLiberandoVivo`). Desconectado o sin datos: nada.
 - Centro de avisos: muestra los 6 más recientes (`AVISOS_A_LA_VISTA`) y el resto con «Ver avisos anteriores»; la elección de silobolsas va plegada al final.
-- Celular (hasta 767 px, reglas en `src/index.css`): barra fija abajo con Resumen y las cuatro variables (con su valor), fila de silobolsas que se desliza arriba, resumen en 2 × 2 donde la tarjeta entera abre el detalle, y primero los datos (contenido, nodos y alertas van después con `despues-movil`). La vista de computadora no cambia.
+- Celular (hasta 767 px, reglas en `src/index.css`): barra fija abajo con Resumen y las cinco variables (con su valor), fila de silobolsas que se desliza arriba, resumen en 2 × 2 donde la tarjeta entera abre el detalle, y primero los datos (contenido, nodos y alertas van después con `despues-movil`). La vista de computadora no cambia.
 - Estado de la central: cada silobolsa puede traer `centrales` en la API (`nombre`, `en_linea`, `ultimo_ts`, `wifi_rssi`, `capsulas_en_linea`, `capsulas`). La pantalla muestra «Central X · En línea / Sin señal» con el detalle; si la API no las trae (servidor real), queda la línea «Datos de la central · última lectura…». En la demo en vivo se calcula con la misma regla que las cápsulas (en línea según la fuente y sin pasar el límite, recalculado con el reloj).
+- Etanol (`etanol`, en ppm): quinta variable. Rango de referencia 0 a 20 ppm (objetivo 5), a validar con el equipo técnico y editable desde la app. La cápsula lo manda en el campo `etanol` (y en `hist`); si no viene, se ve «—». En el servidor es una columna más de `lecturas` (las bases viejas la agregan solas).
 - CO₂ de las cápsulas: el `gas` a veces llega negativo; se usa siempre su módulo (`Math.abs`), en `server/fuente.js` y en `demo/envivo.js` (también las lecturas ya guardadas en el navegador).
 - El pH de las cápsulas NO se copia de la central (es simulado e irreal): se simula dentro del rango con `phSimulado` (`server/fuente.js` y `demo/envivo.js`, misma fórmula).
 

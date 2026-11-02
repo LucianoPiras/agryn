@@ -25,6 +25,9 @@ const UMBRALES_INICIALES = VARIABLES.map((v) => ({ key: v.key, nombre: v.nombre,
 
 // ---------- almacenamiento ----------
 let estado = cargar() || semilla();
+// Datos guardados antes de que existiera el etanol: se suma su umbral y se completan las lecturas simuladas.
+for (const u of UMBRALES_INICIALES) if (!estado.umbrales.some((x) => x.key === u.key)) estado.umbrales.push({ ...u });
+for (const [nodoId, lista] of Object.entries(estado.lecturas || {})) for (const l of lista) if (l.etanol === undefined) l.etanol = valorSimulado(Number(nodoId), 'etanol', l.ts);
 function cargar() {
   try {
     const raw = window.localStorage.getItem(CLAVE_STORE);
@@ -48,7 +51,7 @@ function valorSimulado(semilla, variable, ts) {
   return Number(x.toFixed(variable === 'ph' || variable === 'co2' ? 2 : 1));
 }
 function lecturaSimulada(semilla, ts) {
-  return { ts, ph: valorSimulado(semilla, 'ph', ts), temp: valorSimulado(semilla, 'temp', ts), hum: valorSimulado(semilla, 'hum', ts), co2: valorSimulado(semilla, 'co2', ts) };
+  return { ts, ph: valorSimulado(semilla, 'ph', ts), temp: valorSimulado(semilla, 'temp', ts), hum: valorSimulado(semilla, 'hum', ts), co2: valorSimulado(semilla, 'co2', ts), etanol: valorSimulado(semilla, 'etanol', ts) };
 }
 
 function semilla() {
@@ -67,7 +70,7 @@ function semilla() {
   const rotura = [];
   for (let i = 0; i < 25; i++) {
     const ts = ahora - (24 - i) * 5 * MINUTO;
-    rotura.push({ ts, ph: 6.5, temp: 17.0, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Number((6.5 - (4.5 * i) / 24).toFixed(2)) });
+    rotura.push({ ts, ph: 6.5, temp: 17.0, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Number((6.5 - (4.5 * i) / 24).toFixed(2)), etanol: 5 });
   }
   lecturas[5] = lecturas[5].filter((l) => l.ts < ahora - 2 * HORA).concat(rotura);
   const alertas = [{ id: 1, nodo_id: 5, variable: 'rotura', valor: 1.3, nivel: 'crit', ts: ahora, reconocida: 0, creada: ahora, notificada: 1, diagnostico: diagnosticar(ventanaEn(lecturas[5], ahora)) }];
@@ -311,8 +314,8 @@ function emitir(nombre, datos = {}) {
 
 // Simula lo que manda la central: un patrón en las últimas 2 horas y una alarma en un nodo sin alerta activa.
 const PATRONES_SIMULADOS = {
-  rotura: (i) => ({ ph: 6.5, temp: 17.0, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Number((6.5 - (4.5 * i) / 24).toFixed(2)) }),
-  fermentacion: (i) => ({ ph: 6.5, temp: Number((18 + (8.4 * i) / 24).toFixed(1)), hum: 12.5, co2: Number((6.0 + (4.5 * i) / 24).toFixed(2)) })
+  rotura: (i) => ({ ph: 6.5, temp: 17.0, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Number((6.5 - (4.5 * i) / 24).toFixed(2)), etanol: 5 }),
+  fermentacion: (i) => ({ ph: 6.5, temp: Number((18 + (8.4 * i) / 24).toFixed(1)), hum: 12.5, co2: Number((6.0 + (4.5 * i) / 24).toFixed(2)), etanol: Number((5 + (30 * i) / 24).toFixed(1)) })   // al fermentar, el etanol sube
 };
 export function simularAnomalia(tipo) {
   const ahora = Date.now();
@@ -337,7 +340,7 @@ export function iniciarLiberacion(silo) {
   for (const nodo of silo.nodos) {
     const ultima = lecturas(nodo.id).at(-1);
     if (!ultima) continue;
-    recuperaciones[nodo.id] = { desde: { ph: ultima.ph, temp: ultima.temp, hum: ultima.hum, co2: ultima.co2 }, inicio: Date.now() };
+    recuperaciones[nodo.id] = { desde: { ph: ultima.ph, temp: ultima.temp, hum: ultima.hum, co2: ultima.co2, etanol: ultima.etanol ?? 5 }, inicio: Date.now() };
   }
   if (!temporizadorRecuperacion) temporizadorRecuperacion = setInterval(avanzarRecuperaciones, PASO_RECUPERACION);
   guardar();

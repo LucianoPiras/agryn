@@ -274,7 +274,7 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
   });
 
   // ---------- gateway LoRa: el ESP32 gateway envía las lecturas acá ----------
-  // Recibe una lectura o un lote. Cada lectura: { device_id, ph?, temp?, hum?, co2?, ts? (ms) }.
+  // Recibe una lectura o un lote. Cada lectura: { device_id, ph?, temp?, hum?, co2?, etanol?, ts? (ms) }.
   // Los duplicados (mismo nodo y mismo ts) se ignoran, así que los reintentos son seguros.
   function valoresDe(it) {
     const v = {};
@@ -335,7 +335,7 @@ export function crearApp({ repo, transporte, gatewayKey, centralKey, remitente, 
   // ---------- central: anomalías que encuentra el ESP32 central ----------
   // La central procesa las mediciones y manda acá solo lo que encuentra. La app no vuelve a analizarlas.
   // Cada anomalía: { device_id, tipo, nivel?: 'crit' | 'warn', valor?, ts? (ms) }.
-  // tipo: 'fermentacion', 'rotura', o una variable ('ph', 'temp', 'hum', 'co2').
+  // tipo: 'fermentacion', 'rotura', o una variable ('ph', 'temp', 'hum', 'co2', 'etanol').
   app.post('/api/central/anomalias', (req, res) => {
     if (!centralKey || req.get('X-Api-Key') !== centralKey) return res.status(401).json({ error: 'Clave de central inválida.' });
     const lote = Array.isArray(req.body) ? req.body : [req.body];

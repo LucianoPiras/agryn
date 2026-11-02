@@ -3,6 +3,7 @@
 // que corresponde a cada cápsula. Cada cápsula se asocia a un nodo cuyo identificador es "cap-<id>".
 //
 // Campos que usamos: temp, hum y gas (que es el CO₂ dentro de la bolsa, en %).
+// El gas a veces llega con signo negativo: se guarda siempre su valor absoluto (módulo).
 // El pH que manda la central es simulado y no es real, así que NO se copia: la app lo simula
 // alrededor del objetivo, siempre dentro del rango habitual (phSimulado).
 // La lectura más nueva y el historial se guardan sin repetir (la base ignora las marcas de tiempo ya cargadas).
@@ -24,7 +25,7 @@ export function phSimulado(ts, objetivo = PH.objetivo) {
 const numero = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 
 export function lecturaDeCapsula(cap, ts = cap.fecha) {
-  return { ph: phSimulado(ts), temp: numero(cap.temp), hum: numero(cap.hum), co2: numero(cap.gas) };
+  return { ph: phSimulado(ts), temp: numero(cap.temp), hum: numero(cap.hum), co2: numero(cap.gas) == null ? null : Math.abs(cap.gas) };
 }
 
 // Lee la API una vez y guarda lo nuevo. Devuelve cuántas lecturas se agregaron.

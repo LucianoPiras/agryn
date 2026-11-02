@@ -43,7 +43,7 @@ function cargar() {
     if (r) {
       const e = JSON.parse(r);
       // Las lecturas guardadas antes tenían el pH de la central: se reemplaza por el simulado.
-      for (const c of Object.values(e.capsulas || {})) for (const l of c.lecturas || []) l.ph = phSimulado(l.ts);
+      for (const c of Object.values(e.capsulas || {})) for (const l of c.lecturas || []) { l.ph = phSimulado(l.ts); if (l.co2 != null) l.co2 = Math.abs(l.co2); }
       // Versiones anteriores creaban un «Sin señal» nuevo cada vez que se descartaba: se deja solo el último de cada cápsula.
       const ultimoSinSenal = {};
       for (const a of e.alertas || []) if (a.variable === 'sin_datos' && (!ultimoSinSenal[a.nodo_id] || a.ts > ultimoSinSenal[a.nodo_id].ts)) ultimoSinSenal[a.nodo_id] = a;
@@ -57,6 +57,8 @@ function cargar() {
 function guardar() { try { window.localStorage.setItem(CLAVE, JSON.stringify(est)); } catch (e) { /* queda en memoria */ } }
 
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+// CO₂: la cápsula a veces manda el gas con signo negativo. Se usa siempre su valor absoluto (módulo).
+const co2 = (x) => { const n = num(x); return n == null ? null : Math.abs(n); };
 const idsCapsulas = () => Object.keys(est.capsulas).map(Number).sort((a, b) => a - b);
 const hayEnVivo = () => idsCapsulas().length > 0;
 
@@ -84,11 +86,11 @@ async function sincronizar() {
     const c = est.capsulas[cap.id] || (est.capsulas[cap.id] = { lecturas: [] });
     c.ultima = { fecha: cap.fecha, online: !!cap.online, motivo: cap.motivo || '', hace: num(cap.hace) ?? 0, recibido: Date.now(),
       limite: num(datos.limiteCapsula) ?? LIMITE_PREDETERMINADO,
-      alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: num(cap.gas), lat: num(cap.lat), lon: num(cap.lon),
+      alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: co2(cap.gas), lat: num(cap.lat), lon: num(cap.lon),
       ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum) };
     const conocidas = new Set(c.lecturas.map((l) => l.ts));
-    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: num(h.temp), hum: num(h.hum), co2: num(h.gas) })),
-      { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum), co2: num(cap.gas) }];
+    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: num(h.temp), hum: num(h.hum), co2: co2(h.gas) })),
+      { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum), co2: co2(cap.gas) }];
     for (const l of entrantes) {
       if (typeof l.ts !== 'number' || conocidas.has(l.ts)) continue;
       c.lecturas.push(l); conocidas.add(l.ts); nuevas++;
@@ -104,7 +106,7 @@ async function sincronizar() {
       const ahora = Date.now();
       const valvula = Number(cap.valvula) >= 1;
       est.alertas.push({
-        id: nuevoIdAlerta(), nodo_id: nodoId, variable: 'rotura', etiqueta: 'Alerta de aire', valor: num(cap.gas) ?? 0, nivel: 'crit',
+        id: nuevoIdAlerta(), nodo_id: nodoId, variable: 'rotura', etiqueta: 'Alerta de aire', valor: co2(cap.gas) ?? 0, nivel: 'crit',
         ts: cap.fecha || ahora, reconocida: 0, creada: ahora, notificada: 1, leido: 0,
         diagnostico: 'Alerta de aire: la cápsula ' + cap.id + ' detectó un aumento brusco de gases dentro de la bolsa.' +
           (valvula ? ' La válvula de CO₂ se abrió 3 segundos.' : '')

@@ -96,7 +96,7 @@ test('la central manda lecturas con su clave y la pantalla se entera del lote', 
   await abrirEventos((nombre) => recibidos.push(nombre));
   await esperar(100);
   const ahora = Date.now();
-  const r = await llamar('POST', '/api/central/lecturas', { cuerpo: [{ device_id: 'VIG-1', ph: 6.5, temp: 18, hum: 13, co2: 1.1, ts: ahora }], clave: CLAVE_CENTRAL });
+  const r = await llamar('POST', '/api/central/lecturas', { cuerpo: [{ device_id: 'VIG-1', ph: 6.5, temp: 18, hum: 13, co2: 430, ts: ahora }], clave: CLAVE_CENTRAL });
   assert.equal(r.status, 200);
   await esperar(100);
   assert.ok(recibidos.includes('datos'));

@@ -4,7 +4,7 @@ import { abrirBase, crearRepo } from '../server/db.js';
 import { diagnosticar, tendencias } from '../server/diagnostico.js';
 
 // Serie de lecturas de 2 h: cada variable va de `desde` a `hasta` de forma lineal.
-function serie({ ph = [7, 7], temp = [20, 20], hum = [13, 13], co2 = [1, 1] } = {}, n = 12) {
+function serie({ ph = [7, 7], temp = [20, 20], hum = [13, 13], co2 = [430, 430] } = {}, n = 12) {
   const lin = ([a, b], i) => a + ((b - a) * i) / (n - 1);
   return Array.from({ length: n }, (_, i) => ({
     ts: i * 10 * 60 * 1000,
@@ -13,14 +13,14 @@ function serie({ ph = [7, 7], temp = [20, 20], hum = [13, 13], co2 = [1, 1] } = 
 }
 
 test('temperatura y CO₂ subiendo juntos se leen como fermentación', () => {
-  const texto = diagnosticar(serie({ temp: [18, 22], co2: [1, 1.6] }));
+  const texto = diagnosticar(serie({ temp: [18, 22], co2: [400, 460] }));
   assert.match(texto, /subieron juntos/);
   assert.match(texto, /Temperatura subió \d,\d °C/);
-  assert.match(texto, /CO₂ subió \d,\d %/);
+  assert.match(texto, /CO₂ subió \d+ ppm/);
 });
 
 test('CO₂ bajando con humedad subiendo se lee como posible rotura', () => {
-  const texto = diagnosticar(serie({ co2: [1.8, 1], hum: [12.2, 13.8] }));
+  const texto = diagnosticar(serie({ co2: [470, 390], hum: [12.2, 13.8] }));
   assert.match(texto, /CO₂ bajó de golpe/);
   assert.match(texto, /Humedad subió/);
 });
@@ -40,7 +40,7 @@ test('con pocas lecturas no hay diagnóstico', () => {
 });
 
 test('las tendencias ignoran variaciones menores al mínimo', () => {
-  const cambios = tendencias(serie({ temp: [20, 20.4], co2: [1, 1.1] }));
+  const cambios = tendencias(serie({ temp: [20, 20.4], co2: [430, 435] }));
   assert.deepEqual(cambios, {});
 });
 

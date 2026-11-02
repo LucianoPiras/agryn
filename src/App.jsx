@@ -4,8 +4,8 @@ const VARS = [
   { key: 'ph',   name: 'pH',          unit: '',   dec: 2, min: 6, max: 8 },
   { key: 'temp', name: 'Temperatura', unit: '°C', dec: 1, min: 16,  max: 18 },
   { key: 'hum',  name: 'Humedad',     unit: '%',  dec: 1, min: 11,  max: 13 },
-  { key: 'co2',  name: 'CO₂',         unit: '%',  dec: 2, min: 5.5, max: 7.5 },
-  { key: 'etanol', name: 'Etanol',    unit: 'ppm', dec: 1, min: 0, max: 20 }
+  { key: 'co2',  name: 'CO₂',         unit: 'ppm', dec: 0, min: 380, max: 480 },
+  { key: 'etanol', name: 'Etanol',    unit: '%',  dec: 0, min: -20, max: 40 }
 ];
 const RANGES = {
   '24h': { n: 48, step: 30,  label: '24 h',    ticks: ['-24 h', '-18 h', '-12 h', '-6 h', 'Ahora'] },

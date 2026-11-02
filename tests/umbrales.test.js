@@ -41,7 +41,9 @@ test('los umbrales arrancan con el objetivo de cada variable y una banda de 1', 
   assert.equal(ph.max, 8);
   assert.equal(r.data.length, 5);
   const etanol = r.data.find((u) => u.key === 'etanol');
-  assert.deepEqual([etanol.unidad, etanol.min, etanol.max], ['ppm', 0, 20], 'el etanol se mide en ppm, de 0 a 20');
+  assert.deepEqual([etanol.unidad, etanol.min, etanol.max], ['%', -20, 40], 'el etanol se mide en % sobre la base, de -20 a 40 (como la cápsula)');
+  const co2 = r.data.find((u) => u.key === 'co2');
+  assert.deepEqual([co2.unidad, co2.objetivo, co2.min, co2.max], ['ppm', 430, 380, 480], 'el CO₂ en ppm, alrededor del ambiente');
 });
 
 test('editar un umbral valida que sea un rango posible', async () => {

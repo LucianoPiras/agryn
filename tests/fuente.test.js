@@ -17,9 +17,9 @@ test('guarda el historial y la lectura nueva de cada cápsula, sin repetir', asy
   const silo = repo.crearSilobolsa('Silo Fuente', 'Maíz');
   repo.crearNodo(silo.id, 'Cápsula 1', 'cap-1');
   const t0 = Date.now() - 3 * HORA;
-  const datos = { centrales: [], capsulas: [{ id: 1, fecha: t0 + 2 * HORA, temp: 17.2, hum: 12.1, gas: 6.4, ph: 6.9, hist: [
-    { t: t0, temp: 17.0, hum: 12.0, gas: 6.5, ph: 7.0 },
-    { t: t0 + HORA, temp: 17.1, hum: 12.0, gas: 6.5, ph: 6.9 }
+  const datos = { centrales: [], capsulas: [{ id: 1, fecha: t0 + 2 * HORA, temp: 17.2, hum: 12.1, gas: 6.4, co2: 410, ph: 6.9, hist: [
+    { t: t0, temp: 17.0, hum: 12.0, gas: 6.5, co2: 430, ph: 7.0 },
+    { t: t0 + HORA, temp: 17.1, hum: 12.0, gas: 6.5, co2: 420, ph: 6.9 }
   ] }] };
   const { fetchFn, pedidos } = fuenteFalsa(datos);
   const bus = { emitidas: [], emitirATodos(nombre) { this.emitidas.push(nombre); } };
@@ -29,7 +29,8 @@ test('guarda el historial y la lectura nueva de cada cápsula, sin repetir', asy
   assert.deepEqual(bus.emitidas, ['datos']);
   const nodo = repo.nodoPorDevice('cap-1');
   const ultima = repo.ultimaLectura(nodo.id);
-  assert.equal(ultima.co2, 6.4, 'gas se guarda como CO₂');
+  assert.equal(ultima.co2, 410, 'el CO₂ (ppm) viene calculado por la app de Apps Script');
+  assert.equal(ultima.etanol, 6.4, 'el gas del sensor MQ se guarda como etanol');
   assert.equal(ultima.ts, t0 + 2 * HORA);
   // Una segunda consulta con los mismos datos no agrega nada.
   assert.equal(await sincronizarFuente({ url: URL_FUENTE, repo, bus, fetchFn }), 0);
@@ -62,7 +63,7 @@ test('el pH de la central no se copia: se simula dentro del rango habitual', asy
   assert.equal(lecturas.at(-1).ph, phSimulado(t0 + 6 * HORA), 'mismo valor para la misma hora');
 });
 
-test('el CO₂ se guarda siempre positivo (módulo del gas)', async () => {
+test('el gas del sensor MQ es el etanol, con su signo; sin co2 de la app, el CO₂ queda vacío', async () => {
   const repo = crearRepo(abrirBase(':memory:'));
   const silo = repo.crearSilobolsa('Silo CO2', 'Soja');
   repo.crearNodo(silo.id, 'Cápsula 3', 'cap-3');
@@ -70,7 +71,8 @@ test('el CO₂ se guarda siempre positivo (módulo del gas)', async () => {
   const { fetchFn } = fuenteFalsa({ capsulas: [{ id: 3, fecha: t0 + 60000, temp: 17, hum: 12, gas: -0.2, hist: [{ t: t0, temp: 17, hum: 12, gas: -76.8 }, { t: t0 + 30000, temp: 17, hum: 12, gas: null }] }] });
   await sincronizarFuente({ url: URL_FUENTE, repo, fetchFn });
   const l = repo.lecturasEntre(repo.nodoPorDevice('cap-3').id, 0, Date.now());
-  assert.deepEqual(l.map((x) => x.co2), [76.8, null, 0.2]);
+  assert.deepEqual(l.map((x) => x.etanol), [-76.8, null, -0.2]);
+  assert.deepEqual(l.map((x) => x.co2), [null, null, null]);
 });
 
 test('el etanol de la cápsula se guarda junto a las demás variables', async () => {
@@ -81,5 +83,5 @@ test('el etanol de la cápsula se guarda junto a las demás variables', async ()
   const { fetchFn } = fuenteFalsa({ capsulas: [{ id: 4, fecha: t0 + 60000, temp: 17, hum: 12, gas: 6.5, etanol: 12.5, hist: [{ t: t0, temp: 17, hum: 12, gas: 6.5, etanol: 3 }, { t: t0 + 30000, temp: 17, hum: 12, gas: 6.5 }] }] });
   await sincronizarFuente({ url: URL_FUENTE, repo, fetchFn });
   const l = repo.lecturasEntre(repo.nodoPorDevice('cap-4').id, 0, Date.now());
-  assert.deepEqual(l.map((x) => x.etanol), [3, null, 12.5]);
+  assert.deepEqual(l.map((x) => x.etanol), [3, 6.5, 12.5], 'si no viene «etanol», se usa el gas del sensor MQ');
 });

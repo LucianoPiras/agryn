@@ -82,8 +82,8 @@ test('una anomalía de atención espera la demora, como cualquier alerta de aten
 test('la app no detecta patrones por su cuenta: lecturas que suben juntas no generan alerta', async () => {
   const t0 = Date.now() - 3 * HORA;
   await llamar('POST', '/api/gateway/lecturas', { cuerpo: [
-    { device_id: 'CEN-1', temp: 20, co2: 1.0, hum: 13, ts: t0 },
-    { device_id: 'CEN-1', temp: 24, co2: 1.6, hum: 13, ts: t0 + HORA }
+    { device_id: 'CEN-1', temp: 20, co2: 400, hum: 13, ts: t0 },
+    { device_id: 'CEN-1', temp: 24, co2: 460, hum: 13, ts: t0 + HORA }
   ], clave: CLAVE_GATEWAY });
   const alertas = (await llamar('GET', '/api/alertas', { token })).data;
   assert.equal(alertas.filter((a) => a.variable === 'fermentacion').length, 1, 'solo la de la central');
@@ -107,17 +107,17 @@ test('la alerta de rotura se cierra sola cuando los valores vuelven al rango y s
   assert.ok(await activa());
   const lectura = (min, co2, hum) => ({ device_id: 'CIE-1', ts: t0 + min * 60 * 1000, ph: 7, temp: 17, hum, co2 });
   // Todavía fuera de rango y después solo 2 minutos dentro: no alcanza para darla por solucionada.
-  await llamar('POST', '/api/central/lecturas', { cuerpo: [lectura(1, 3.0, 15), lectura(2, 6.5, 12), lectura(4, 6.5, 12)], clave: CLAVE_CENTRAL });
+  await llamar('POST', '/api/central/lecturas', { cuerpo: [lectura(1, 300, 15), lectura(2, 430, 12), lectura(4, 430, 12)], clave: CLAVE_CENTRAL });
   assert.ok(await activa(), 'sigue activa con 2 min dentro del rango');
   // Cinco minutos seguidos dentro del rango: se cierra sola.
-  await llamar('POST', '/api/central/lecturas', { cuerpo: [lectura(7, 6.5, 12)], clave: CLAVE_CENTRAL });
+  await llamar('POST', '/api/central/lecturas', { cuerpo: [lectura(7, 430, 12)], clave: CLAVE_CENTRAL });
   assert.equal(await activa(), undefined, 'se cerró sola');
 });
 
 test('el etanol llega por la central y salta una alerta si pasa el máximo', async () => {
   const silo = await llamar('POST', '/api/silobolsas', { cuerpo: { nombre: 'Silo Etanol', contenido: 'Maíz' }, token });
   await llamar('POST', `/api/silobolsas/${silo.data.id}/nodos`, { cuerpo: { nombre: 'Nodo E', device_id: 'ETA-1' }, token });
-  const r = await llamar('POST', '/api/central/lecturas', { cuerpo: [{ device_id: 'ETA-1', ph: 7, temp: 17, hum: 12, co2: 6.5, etanol: 45 }], clave: CLAVE_CENTRAL });
+  const r = await llamar('POST', '/api/central/lecturas', { cuerpo: [{ device_id: 'ETA-1', ph: 7, temp: 17, hum: 12, co2: 430, etanol: 45 }], clave: CLAVE_CENTRAL });
   assert.equal(r.data.aceptadas, 1);
   const alerta = (await llamar('GET', '/api/alertas', { token })).data.find((a) => a.nodo === 'Nodo E');
   assert.equal(alerta.variable, 'etanol');

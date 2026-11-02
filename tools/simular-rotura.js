@@ -60,13 +60,14 @@ async function main() {
     ph: serie(6.5, 6.5, i, n),
     temp: serie(18, 18.2, i, n),
     hum: serie(12.6, 14.2, i, n),   // la humedad sube, dentro del rango para no disparar alertas por umbral
-    co2: serie(2.0, 1.3, i, n)      // el CO₂ baja, también dentro del rango
+    co2: Math.round(serie(470, 390, i, n)),   // el CO₂ (ppm) baja, también dentro del rango
+    etanol: Math.round(serie(2, 30, i, n))    // y el etanol (% sobre la base) sube, sin pasar el máximo
   }));
   const carga = await enviar('/api/gateway/lecturas', GATEWAY, lecturas);
   console.log(`Lecturas cargadas: ${carga.aceptadas} (duplicadas: ${carga.duplicadas})`);
 
   const alarma = await enviar('/api/central/anomalias', CENTRAL, [
-    { device_id: DEVICE, tipo: 'rotura', nivel: 'crit', valor: 1.3, ts: ahora }
+    { device_id: DEVICE, tipo: 'rotura', nivel: 'crit', valor: 390, ts: ahora }
   ]);
   console.log(`Alarma enviada. Nuevas: ${alarma.nuevas}`);
   console.log('Ahora abrí la app en el navegador con la cuenta de prueba y mirá el aviso y el diagnóstico.');

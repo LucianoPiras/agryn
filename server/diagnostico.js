@@ -9,7 +9,7 @@ export const VENTANA_DIAGNOSTICO = 2 * 60 * 60 * 1000;
 const MINIMO_LECTURAS = 6;
 
 // Cambio mínimo, en la unidad de cada variable, para considerarlo un cambio real y no ruido.
-const CAMBIO_MINIMO = { ph: 0.2, temp: 1, hum: 1, co2: 0.2, etanol: 2 };
+const CAMBIO_MINIMO = { ph: 0.2, temp: 1, hum: 1, co2: 10, etanol: 5 };   // co2 en ppm, etanol en % sobre la base
 
 const promedio = (xs) => xs.reduce((s, x) => s + x, 0) / xs.length;
 
@@ -35,13 +35,13 @@ function causaDe(cambios) {
   return null;
 }
 
-const numero = (x) => Math.abs(x).toFixed(1).replace('.', ',');
+const numero = (x, dec = 1) => Math.abs(x).toFixed(dec).replace('.', ',');
 
 function frase(key, delta) {
   const v = VARIABLES.find((x) => x.key === key);
   const unidad = v.unidad ? ' ' + v.unidad : '';
   const sentido = delta > 0 ? 'subió' : 'bajó';
-  return `${v.nombre} ${sentido} ${numero(delta)}${unidad}`;
+  return `${v.nombre} ${sentido} ${numero(delta, v.unidad === 'ppm' ? 0 : 1)}${unidad}`;
 }
 
 // Arma el texto del diagnóstico. Devuelve null si no hay lecturas suficientes para decir algo.

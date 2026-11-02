@@ -47,7 +47,7 @@ function cargar() {
       return e;
     }
   } catch (e) { /* nada */ }
-  return { capsulas: {}, alertas: [], silenciada: false, ultimaOk: 0 };
+  return { capsulas: {}, centrales: {}, alertas: [], silenciada: false, ultimaOk: 0 };
 }
 function guardar() { try { window.localStorage.setItem(CLAVE, JSON.stringify(est)); } catch (e) { /* queda en memoria */ } }
 
@@ -66,6 +66,15 @@ async function sincronizar() {
   const datos = await r.json();
   let nuevas = 0, alertasNuevas = 0, alertasCerradas = 0;
   const reglas = await umbralesVigentes();
+  // Centrales: si están en línea, con la misma regla que las cápsulas (ver centralEnLinea).
+  est.centrales = est.centrales || {};
+  const limiteCentral = num(datos.limiteCentral) ?? num(datos.limiteCapsula) ?? LIMITE_PREDETERMINADO;
+  for (const ce of datos.centrales || []) {
+    if (!ce || !ce.central) continue;
+    const previa = est.centrales[ce.central] || {};
+    est.centrales[ce.central] = { ...previa, online: !!ce.online, hace: num(ce.hace) ?? 0, recibido: Date.now(), limite: limiteCentral,
+      wifi: num(ce.wifi_rssi), capsulasEnLinea: num(ce.en_linea), capsulas: num(ce.capsulas) };
+  }
   for (const cap of datos.capsulas || []) {
     const c = est.capsulas[cap.id] || (est.capsulas[cap.id] = { lecturas: [] });
     c.ultima = { fecha: cap.fecha, online: !!cap.online, motivo: cap.motivo || '', hace: num(cap.hace) ?? 0, recibido: Date.now(),
@@ -135,6 +144,17 @@ function haceTexto(seg) {
 }
 
 // Crea un aviso «Sin señal» cuando una cápsula deja de reportar y lo cierra solo cuando vuelve.
+// ---------- central: «en línea» o «sin señal» ----------
+// Misma regla que las cápsulas: en línea solo si la app de Apps Script la marcó en línea Y desde
+// ese dato no pasó el límite. Se recalcula con el reloj, así que pasa sola a «sin señal».
+function segundosCentral(u) { return u.hace + Math.max(0, (Date.now() - u.recibido) / 1000); }
+function centralEnLinea(u) { return !!(u && u.online && segundosCentral(u) < u.limite); }
+function vistaCentral(nombre) {
+  const u = est.centrales[nombre];
+  return { nombre, en_linea: centralEnLinea(u), ultimo_ts: Math.round(u.recibido - u.hace * 1000),
+    wifi_rssi: u.wifi, capsulas_en_linea: u.capsulasEnLinea, capsulas: u.capsulas };
+}
+
 function revisarSenal() {
   let cambio = false;
   for (const cid of idsCapsulas()) {
@@ -155,6 +175,11 @@ function revisarSenal() {
       abierta.reconocida = 1; abierta.leido = 1;   // volvió la señal: se cierra sola
       cambio = true;
     }
+  }
+  // Si una central cambió de estado, la pantalla se actualiza enseguida.
+  for (const u of Object.values(est.centrales || {})) {
+    const vivo = centralEnLinea(u);
+    if (u.vista !== vivo) { u.vista = vivo; cambio = true; }
   }
   if (cambio) { guardar(); emitir('datos'); emitir('alerta'); emitir('aviso'); }
 }
@@ -289,6 +314,7 @@ const esNodoVivo = (id) => id > BASE_NODO && est.capsulas[id - BASE_NODO];
 function siloVivo() {
   return {
     id: SILO_ID, nombre: 'Cápsulas AGRYN (en vivo)', contenido: 'Soja', creada: 0,
+    centrales: Object.keys(est.centrales || {}).sort().map(vistaCentral),
     nodos: idsCapsulas().map((cid) => {
       const c = est.capsulas[cid], l = c.lecturas;
       const ultimaTs = (c.ultima && c.ultima.fecha) || (l.length ? l[l.length - 1].ts : null);

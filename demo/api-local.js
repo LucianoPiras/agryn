@@ -123,12 +123,21 @@ function latir() {
 const json = (data, status = 200) => new Response(status === 204 ? null : JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 const error = (status, mensaje) => json({ error: mensaje }, status);
 
+// Central simulada de cada silobolsa: en línea mientras sigan llegando lecturas (cada 30 s).
+function centralSimulada(s) {
+  const ultimo = Math.max(0, ...s.nodos.map((n) => { const l = lecturas(n.id); return l.length ? l[l.length - 1].ts : 0; }));
+  const enLinea = ultimo > 0 && Date.now() - ultimo < 3 * MINUTO;
+  return { nombre: 'Central ' + String(s.id).padStart(2, '0'), en_linea: enLinea, ultimo_ts: ultimo || null,
+    wifi_rssi: -55, capsulas_en_linea: enLinea ? s.nodos.length : 0, capsulas: s.nodos.length };
+}
+
 function silobolsasConNodos() {
   return estado.silos.map((s) => ({
     id: s.id,
     nombre: s.nombre,
     contenido: s.contenido,
     creada: s.creada || 0,
+    centrales: s.nodos.length ? [centralSimulada(s)] : [],
     nodos: s.nodos.map((n) => {
       const l = lecturas(n.id);
       return { id: n.id, silobolsa_id: s.id, nombre: n.nombre, device_id: n.device_id, ultima_ts: l.length ? l[l.length - 1].ts : null };

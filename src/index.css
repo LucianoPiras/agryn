@@ -125,3 +125,11 @@ input[type=range] { accent-color: #005A36; }
 @media (max-width: 767px) {
   .central-estado { border-radius: 12px !important; }   /* en dos renglones, la píldora se ve mejor con esquinas más rectas */
 }
+/* Centro de avisos: la elección de silobolsas va plegada al final */
+.aviso-preferencias summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font: 600 13px/1.2 'Montserrat', system-ui, sans-serif; color: #005A36; }
+@media (max-width: 767px) {
+  /* Avisos compactos: título, detalle en dos renglones y los botones en una fila */
+  .aviso-item { padding: 10px !important; gap: 6px !important; }
+  .aviso-item > div:first-child p:last-child { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .aviso-item .btn { padding: 0 10px; font-size: 12px; }
+}

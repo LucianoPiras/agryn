@@ -44,6 +44,11 @@ function cargar() {
       const e = JSON.parse(r);
       // Las lecturas guardadas antes tenían el pH de la central: se reemplaza por el simulado.
       for (const c of Object.values(e.capsulas || {})) for (const l of c.lecturas || []) l.ph = phSimulado(l.ts);
+      // Versiones anteriores creaban un «Sin señal» nuevo cada vez que se descartaba: se deja solo el último de cada cápsula.
+      const ultimoSinSenal = {};
+      for (const a of e.alertas || []) if (a.variable === 'sin_datos' && (!ultimoSinSenal[a.nodo_id] || a.ts > ultimoSinSenal[a.nodo_id].ts)) ultimoSinSenal[a.nodo_id] = a;
+      e.alertas = (e.alertas || []).filter((a) => a.variable !== 'sin_datos' || ultimoSinSenal[a.nodo_id] === a);
+      for (const a of Object.values(ultimoSinSenal)) if (a.reconocida && e.capsulas[a.nodo_id - BASE_NODO]) e.capsulas[a.nodo_id - BASE_NODO].sinSenalAvisada = true;
       return e;
     }
   } catch (e) { /* nada */ }
@@ -162,7 +167,10 @@ function revisarSenal() {
     const abierta = est.alertas.find((a) => a.nodo_id === nodoId && a.variable === 'sin_datos' && !a.reconocida);
     const vivo = enLinea(c);
     if (c.enLinea !== vivo) { c.enLinea = vivo; cambio = true; }
-    if (!vivo && !abierta && c.ultima) {
+    // Un solo «Sin señal» por desconexión: si lo descartás, no vuelve hasta que la cápsula se reconecte y se corte de nuevo.
+    if (vivo) c.sinSenalAvisada = false;
+    if (!vivo && !abierta && !c.sinSenalAvisada && c.ultima) {
+      c.sinSenalAvisada = true;
       const ahora = Date.now(), motivo = c.ultima.motivo || 'no llegan datos nuevos';
       est.alertas.push({
         id: nuevoIdAlerta(), nodo_id: nodoId, variable: 'sin_datos', etiqueta: 'Sin señal', valor: 0, nivel: 'warn',   // advertencia: no se libera CO₂
@@ -196,7 +204,10 @@ const PATRON_NOMBRE = { rotura: 'Posible rotura o ingreso de aire', fermentacion
 const SOSTENIDO = 60 * 1000;
 const NOMBRES = { ph: ['pH', ''], temp: ['Temperatura', ' °C'], hum: ['Humedad', ' %'], co2: ['CO₂', ' %'] };
 
+// Se leen directo de la demo: pedirlos por /api/umbrales exige la sesión (desde la pantalla de ingreso)
+// y sin umbrales no saltaba ninguna alerta por valores.
 async function umbralesVigentes() {
+  if (window.__agrynUmbrales) return window.__agrynUmbrales();
   try { const r = await fetchDemo('/api/umbrales'); return r.ok ? await r.json() : []; } catch (e) { return []; }
 }
 const regla = (reglas, k) => reglas.find((x) => x.key === k);
@@ -323,6 +334,13 @@ function siloVivo() {
     })
   };
 }
+// Mientras una cápsula está sin señal, sus alertas por valores quedan en pausa: los datos no son actuales.
+// Se ve solo «Sin señal». Cuando vuelve, reaparecen las mismas (sin avisos nuevos) y se cierran solas si los valores ya están bien.
+function vigente(a) {
+  if (a.variable === 'sin_datos') return true;
+  const c = est.capsulas[a.nodo_id - BASE_NODO];
+  return !c || enLinea(c);
+}
 function alertaVista(a) {
   return { ...a, nodo: 'Cápsula ' + (a.nodo_id - BASE_NODO), silobolsa: 'Cápsulas AGRYN (en vivo)', silobolsa_id: SILO_ID, etiqueta: a.etiqueta || 'Alerta de aire', descripcion: a.diagnostico };
 }
@@ -363,7 +381,7 @@ async function responder(url, metodo, opciones) {
   if (p === '/api/alertas' && metodo === 'GET') {
     const reconocidas = new URL(url, 'http://demo').searchParams.get('reconocidas') === '1';
     const lista = await (await fetchDemo(url, opciones)).json();
-    const vivas = est.alertas.filter((a) => !!a.reconocida === reconocidas).map(alertaVista);
+    const vivas = est.alertas.filter((a) => !!a.reconocida === reconocidas && (reconocidas || vigente(a))).map(alertaVista);
     return json([...vivas, ...lista].sort((a, b) => b.ts - a.ts));
   }
   if ((m = p.match(/^\/api\/alertas\/(\d+)\/reconocer$/)) && Number(m[1]) > BASE_ALERTA) {

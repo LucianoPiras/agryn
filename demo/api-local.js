@@ -391,6 +391,8 @@ const ETIQUETAS = { rotura: 'Posible rotura o ingreso de aire', fermentacion: 'P
 export function instalarApiDemo() {
   // La página no arranca con sesión: hay que ingresar con el correo y la contraseña.
   window.__agrynSesionValida = (opciones) => sesionValida(tokenDe(opciones));
+  // Las cápsulas en vivo (demo/envivo.js) evalúan sus valores con los umbrales que se editan en la app.
+  window.__agrynUmbrales = () => estado.umbrales.map((u) => ({ ...u }));
   const fetchReal = window.fetch.bind(window);
   window.fetch = async (entrada, opciones = {}) => {
     const url = typeof entrada === 'string' ? entrada : entrada.url;

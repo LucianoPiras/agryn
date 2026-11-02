@@ -419,7 +419,7 @@ export default class App extends React.Component {
     const banners = unacked.map((a) => {
       const crit = a.sev === 'crit';
       return {
-      id: a.id,
+      id: a.id, bid: a.bid, nid: a.nid,
       bg: crit ? '#B02A18' : '#FFF4DD',
       border: crit ? '#7A1B0F' : '#B7791F',
       accent: crit ? '#FAF6E9' : '#8A4D00',
@@ -1156,7 +1156,7 @@ export default class App extends React.Component {
       {v.hasBanner && (<>
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       {v.banners.map((b) => (<React.Fragment key={b.id}>
-      <section role="alert" aria-live="assertive" className="flash banner-alerta" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: `${b.bg}`, border: `1px solid ${b.border}`, color: `${b.fg}` }}>
+      <section role="alert" aria-live="assertive" className="flash banner-alerta" data-silobolsa={b.bid} data-nodo={b.nid} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: `${b.bg}`, border: `1px solid ${b.border}`, color: `${b.fg}` }}>
       <span className="icono-alerta" style={{ width: "44px", height: "44px", flex: "none", borderRadius: "999px", background: `${b.iconBg}`, color: `${b.iconFg}`, display: "grid", placeItems: "center" }} aria-hidden="true">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3 2.5 20h19L12 3Z" />

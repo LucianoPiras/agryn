@@ -343,9 +343,11 @@ export function iniciarLiberacion(silo) {
   guardar();
 }
 
-// ¿Hay algún nodo volviendo al objetivo ahora mismo? Lo usa el cartel de la alarma.
-export function liberandoCO2() {
-  return Object.keys(recuperaciones).length > 0;
+// ¿Este nodo está volviendo al objetivo ahora mismo (la central libera CO₂)? Lo usa el cartel de la alarma.
+// Sin nodo, dice si hay alguno. Un nodo sin lecturas nunca entra en la liberación.
+export function liberandoCO2(nodoId) {
+  if (nodoId == null) return Object.keys(recuperaciones).length > 0;
+  return !!recuperaciones[nodoId];
 }
 
 const DURACION_RECUPERACION = 90 * 1000;
@@ -409,7 +411,7 @@ export function instalarApiDemo() {
     close() { oyentes.splice(oyentes.indexOf(this), 1); }
   };
   // Las alarmas críticas que ya estaban sin descartar también están liberando CO₂.
-  for (const a of estado.alertas) if (a.nivel === 'crit' && !a.reconocida && !liberandoCO2()) iniciarLiberacion(nodoDe(a.nodo_id).silo);
+  for (const a of estado.alertas) { const info = nodoDe(a.nodo_id); if (info && a.nivel === 'crit' && !a.reconocida && !liberandoCO2(a.nodo_id)) iniciarLiberacion(info.silo); }
   latir();
   setInterval(latir, 30 * 1000);
 }

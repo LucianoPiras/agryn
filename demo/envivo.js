@@ -336,6 +336,13 @@ function siloVivo() {
     })
   };
 }
+// «Liberando CO₂» en una alerta de cápsula real: solo si la cápsula está en línea y la central informa la válvula abierta.
+// Desconectada, no se muestra nada.
+window.__agrynLiberandoVivo = (nodoId) => {
+  const c = est.capsulas[nodoId - BASE_NODO];
+  return !!(c && c.ultima && enLinea(c) && c.ultima.valvula >= 1);
+};
+
 // Mientras una cápsula está sin señal, sus alertas por valores quedan en pausa: los datos no son actuales.
 // Se ve solo «Sin señal». Cuando vuelve, reaparecen las mismas (sin avisos nuevos) y se cierran solas si los valores ya están bien.
 function vigente(a) {

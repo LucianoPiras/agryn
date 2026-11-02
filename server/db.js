@@ -22,7 +22,7 @@ export function abrirBase(ruta = ':memory:') {
     CREATE TABLE IF NOT EXISTS lecturas (
       nodo_id INTEGER NOT NULL REFERENCES nodos(id) ON DELETE CASCADE,
       ts INTEGER NOT NULL,
-      ph REAL, temp REAL, hum REAL, co2 REAL,
+      ph REAL, temp REAL, hum REAL, co2 REAL, etanol REAL,
       PRIMARY KEY (nodo_id, ts)
     );
     CREATE TABLE IF NOT EXISTS alertas (
@@ -83,6 +83,8 @@ export function abrirBase(ruta = ':memory:') {
     db.exec('ALTER TABLE alertas ADD COLUMN notificada INTEGER NOT NULL DEFAULT 1');
   }
   if (!columnas.includes('diagnostico')) db.exec('ALTER TABLE alertas ADD COLUMN diagnostico TEXT');
+  // Bases creadas antes del etanol: se agrega la columna (las lecturas viejas quedan sin dato).
+  if (!db.prepare('PRAGMA table_info(lecturas)').all().some((c) => c.name === 'etanol')) db.exec('ALTER TABLE lecturas ADD COLUMN etanol REAL');
   return db;
 }
 
@@ -101,11 +103,11 @@ export function crearRepo(db) {
     nodoPorDevice: q('SELECT id, silobolsa_id, nombre, device_id FROM nodos WHERE device_id = ?'),
     nuevoNodo: q('INSERT INTO nodos (silobolsa_id, nombre, device_id) VALUES (?, ?, ?)'),
     borraNodo: q('DELETE FROM nodos WHERE id = ?'),
-    insertLectura: q('INSERT OR IGNORE INTO lecturas (nodo_id, ts, ph, temp, hum, co2) VALUES (?, ?, ?, ?, ?, ?)'),
-    lecturas: q('SELECT ts, ph, temp, hum, co2 FROM lecturas WHERE nodo_id = ? AND ts BETWEEN ? AND ? ORDER BY ts DESC LIMIT ?'),
-    ultima: q('SELECT ts, ph, temp, hum, co2 FROM lecturas WHERE nodo_id = ? ORDER BY ts DESC LIMIT 1'),
-    entre: q('SELECT ts, ph, temp, hum, co2 FROM lecturas WHERE nodo_id = ? AND ts >= ? ORDER BY ts ASC'),
-    entreAcotado: q('SELECT ts, ph, temp, hum, co2 FROM lecturas WHERE nodo_id = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC'),
+    insertLectura: q('INSERT OR IGNORE INTO lecturas (nodo_id, ts, ph, temp, hum, co2, etanol) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+    lecturas: q('SELECT ts, ph, temp, hum, co2, etanol FROM lecturas WHERE nodo_id = ? AND ts BETWEEN ? AND ? ORDER BY ts DESC LIMIT ?'),
+    ultima: q('SELECT ts, ph, temp, hum, co2, etanol FROM lecturas WHERE nodo_id = ? ORDER BY ts DESC LIMIT 1'),
+    entre: q('SELECT ts, ph, temp, hum, co2, etanol FROM lecturas WHERE nodo_id = ? AND ts >= ? ORDER BY ts ASC'),
+    entreAcotado: q('SELECT ts, ph, temp, hum, co2, etanol FROM lecturas WHERE nodo_id = ? AND ts BETWEEN ? AND ? ORDER BY ts ASC'),
     alertaActiva: q('SELECT id FROM alertas WHERE nodo_id = ? AND variable = ? AND reconocida = 0'),
     nuevaAlerta: q('INSERT INTO alertas (nodo_id, variable, valor, nivel, ts, creada, diagnostico) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     alertasPorNotificar: q(`SELECT a.id, a.variable, a.valor, a.nivel, a.ts, a.diagnostico, n.id AS nodo_id, n.nombre AS nodo, s.id AS silobolsa_id, s.nombre AS silobolsa
@@ -178,7 +180,7 @@ export function crearRepo(db) {
     },
     borrarNodo(id) { return st.borraNodo.run(id).changes > 0; },
     guardarLectura(nodoId, ts, v) {
-      return st.insertLectura.run(nodoId, ts, v.ph ?? null, v.temp ?? null, v.hum ?? null, v.co2 ?? null).changes > 0;
+      return st.insertLectura.run(nodoId, ts, v.ph ?? null, v.temp ?? null, v.hum ?? null, v.co2 ?? null, v.etanol ?? null).changes > 0;
     },
     lecturas(nodoId, desde, hasta, limite) {
       return st.lecturas.all(nodoId, desde, hasta, limite);

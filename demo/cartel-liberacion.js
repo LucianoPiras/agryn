@@ -12,16 +12,19 @@ function carteles() {
   for (const bloque of document.querySelectorAll('section[role="alert"]')) {
     if (!bloque.innerText.toUpperCase().includes('ALERTA CRÍTICA')) continue;
     const boton = [...bloque.querySelectorAll('button')].find((b) => ['Reconocer', 'Descartar'].includes(b.textContent.trim())) || null;
-    // La liberación es de las silobolsas simuladas: no se muestra en las alertas de las cápsulas reales.
-    encontrados.push({ boton, bloque, vivo: bloque.innerText.includes('Cápsulas AGRYN (en vivo)') });
+    encontrados.push({ boton, bloque, nodo: Number(bloque.dataset.nodo) });
   }
   return encontrados;
 }
 
 function actualizar() {
-  for (const { boton, bloque, vivo } of carteles()) {
+  for (const { boton, bloque, nodo } of carteles()) {
     if (boton && boton.textContent !== 'Descartar') boton.textContent = 'Descartar';
-    if (vivo) continue;
+    // Solo en la alerta del nodo que de verdad está liberando CO₂: el nodo simulado que se está corrigiendo,
+    // o la cápsula real en línea con la válvula abierta. Un nodo desconectado o sin datos no muestra nada.
+    const libera = Number.isFinite(nodo) && (liberandoCO2(nodo) || (window.__agrynLiberandoVivo ? window.__agrynLiberandoVivo(nodo) : false));
+    const previa = bloque.querySelector('[data-liberando-co2]');
+    if (!libera) { if (previa) previa.style.display = 'none'; continue; }
     // La columna de texto es el padre del rótulo «ALERTA CRÍTICA».
     const rotulo = [...bloque.querySelectorAll('*')].find((e) => e.childElementCount === 0 && e.textContent.trim().toUpperCase() === 'ALERTA CRÍTICA');
     const columna = rotulo ? rotulo.parentElement : bloque;
@@ -42,7 +45,7 @@ function actualizar() {
       if (titulo) titulo.insertAdjacentElement('afterend', linea);
       else columna.appendChild(linea);
     }
-    linea.style.display = liberandoCO2() ? '' : 'none';
+    linea.style.display = '';
   }
 }
 

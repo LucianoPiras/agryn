@@ -9,7 +9,12 @@ export const VARIABLES = [
   objetivo('ph', 'pH', '', 7, 2),
   objetivo('temp', 'Temperatura', '°C', 17, 1),
   objetivo('hum', 'Humedad', '%', 12, 1),
-  objetivo('co2', 'CO₂', '%', 6.5, 2)
+  // CO₂ (ppm): la cápsula no tiene sensor de CO₂. Se toma el del ambiente (430 ppm, promedio de 2026) y,
+  // cuando el etanol se dispara (alerta de aire), baja de forma lenta y progresiva. Lo calcula la app de Apps Script.
+  { key: 'co2', nombre: 'CO₂', unidad: 'ppm', objetivo: 430, min: 380, max: 480 },
+  // Etanol (lo mide el sensor MQ de la cápsula, en % sobre su base): si se dispara, hay ingreso de aire o fermentación.
+  // La cápsula da la alerta a partir de +40 %. Rango a validar con el equipo técnico (se edita desde la app).
+  { key: 'etanol', nombre: 'Etanol', unidad: '%', objetivo: 0, min: -20, max: 40 }
 ];
 
 // Devuelve las alertas de una lectura según los umbrales vigentes (reglas: { key, min, max }).

@@ -25,6 +25,23 @@ const UMBRALES_INICIALES = VARIABLES.map((v) => ({ key: v.key, nombre: v.nombre,
 
 // ---------- almacenamiento ----------
 let estado = cargar() || semilla();
+// Datos guardados antes de que existiera el etanol: se suma su umbral y se completan las lecturas simuladas.
+for (const u of UMBRALES_INICIALES) if (!estado.umbrales.some((x) => x.key === u.key)) estado.umbrales.push({ ...u });
+// Datos guardados con el CO₂ en % y el etanol en ppm: se pasan a CO₂ en ppm y etanol en % sobre la base (como la app del celular).
+const CO2_PPM_POR_PORCIENTO = 430 / 6.5;   // el objetivo viejo (6,5 %) pasa a ser el CO₂ del ambiente (430 ppm)
+if (!estado.unidadesCelular) {   // se hace una sola vez por navegador
+  for (const u of estado.umbrales) {
+    const nuevo = UMBRALES_INICIALES.find((x) => x.key === u.key);
+    if (nuevo && (u.key === 'co2' || u.key === 'etanol')) Object.assign(u, nuevo);
+  }
+  for (const [nodoId, lista] of Object.entries(estado.lecturas || {})) for (const l of lista) {
+    if (l.co2 != null) l.co2 = Math.round(l.co2 * CO2_PPM_POR_PORCIENTO);
+    l.etanol = valorSimulado(Number(nodoId), 'etanol', l.ts);
+  }
+  for (const a of estado.alertas || []) if ((a.variable === 'co2' || a.variable === 'rotura') && a.valor != null) a.valor = Math.round(a.valor * CO2_PPM_POR_PORCIENTO);
+  estado.unidadesCelular = true;
+  guardar();
+}
 function cargar() {
   try {
     const raw = window.localStorage.getItem(CLAVE_STORE);
@@ -42,13 +59,15 @@ const nuevoId = (lista) => lista.reduce((m, x) => Math.max(m, x.id), 0) + 1;
 function valorSimulado(semilla, variable, ts) {
   const v = VARIABLES.find((x) => x.key === variable);
   const fase = semilla * 2.7 + variable.length;
-  const onda = Math.sin((ts / (6 * HORA)) * Math.PI * 2 + fase) * 0.3;
-  const ruido = Math.sin(ts / (37 * MINUTO) + fase * 3) * 0.05;
+  // La oscilación es proporcional al ancho del rango (para el CO₂ en ppm o el etanol en %, que tienen rangos más anchos).
+  const escala = Math.max(1, (v.max - v.min) / 2) / 3;
+  const onda = Math.sin((ts / (6 * HORA)) * Math.PI * 2 + fase) * 0.3 * escala;
+  const ruido = Math.sin(ts / (37 * MINUTO) + fase * 3) * 0.05 * escala;
   const x = v.objetivo + (onda + ruido);
-  return Number(x.toFixed(variable === 'ph' || variable === 'co2' ? 2 : 1));
+  return Number(x.toFixed(variable === 'ph' ? 2 : (variable === 'co2' || variable === 'etanol' ? 0 : 1)));
 }
 function lecturaSimulada(semilla, ts) {
-  return { ts, ph: valorSimulado(semilla, 'ph', ts), temp: valorSimulado(semilla, 'temp', ts), hum: valorSimulado(semilla, 'hum', ts), co2: valorSimulado(semilla, 'co2', ts) };
+  return { ts, ph: valorSimulado(semilla, 'ph', ts), temp: valorSimulado(semilla, 'temp', ts), hum: valorSimulado(semilla, 'hum', ts), co2: valorSimulado(semilla, 'co2', ts), etanol: valorSimulado(semilla, 'etanol', ts) };
 }
 
 function semilla() {
@@ -67,12 +86,12 @@ function semilla() {
   const rotura = [];
   for (let i = 0; i < 25; i++) {
     const ts = ahora - (24 - i) * 5 * MINUTO;
-    rotura.push({ ts, ph: 6.5, temp: 17.0, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Number((6.5 - (4.5 * i) / 24).toFixed(2)) });
+    rotura.push({ ts, ph: 6.5, temp: 17.0, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Math.round(430 - (300 * i) / 24), etanol: Math.round((60 * i) / 24) });
   }
   lecturas[5] = lecturas[5].filter((l) => l.ts < ahora - 2 * HORA).concat(rotura);
-  const alertas = [{ id: 1, nodo_id: 5, variable: 'rotura', valor: 1.3, nivel: 'crit', ts: ahora, reconocida: 0, creada: ahora, notificada: 1, diagnostico: diagnosticar(ventanaEn(lecturas[5], ahora)) }];
+  const alertas = [{ id: 1, nodo_id: 5, variable: 'rotura', valor: 130, nivel: 'crit', ts: ahora, reconocida: 0, creada: ahora, notificada: 1, diagnostico: diagnosticar(ventanaEn(lecturas[5], ahora)) }];
   const avisos = [{ id: 1, usuario: USUARIO, alerta_id: 1, creada: ahora, leido: 0 }];
-  return { silos, lecturas, alertas, avisos, umbrales: UMBRALES_INICIALES, silenciadas: [], nextId: 100 };
+  return { silos, lecturas, alertas, avisos, umbrales: UMBRALES_INICIALES, silenciadas: [], nextId: 100, unidadesCelular: true };
 }
 
 // Las lecturas de las 2 horas previas a la alarma, igual que el servidor.
@@ -311,8 +330,10 @@ function emitir(nombre, datos = {}) {
 
 // Simula lo que manda la central: un patrón en las últimas 2 horas y una alarma en un nodo sin alerta activa.
 const PATRONES_SIMULADOS = {
-  rotura: (i) => ({ ph: 6.5, temp: 17.0, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Number((6.5 - (4.5 * i) / 24).toFixed(2)) }),
-  fermentacion: (i) => ({ ph: 6.5, temp: Number((18 + (8.4 * i) / 24).toFixed(1)), hum: 12.5, co2: Number((6.0 + (4.5 * i) / 24).toFixed(2)) })
+  // Ingreso de aire: como en la cápsula real, el etanol se dispara y el CO₂ baja de forma lenta y progresiva.
+  rotura: (i) => ({ ph: 6.5, temp: 17.0, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Math.round(430 - (300 * i) / 24), etanol: Math.round((60 * i) / 24) }),
+  // Fermentación: sube la temperatura, sube el CO₂ y también el etanol.
+  fermentacion: (i) => ({ ph: 6.5, temp: Number((18 + (8.4 * i) / 24).toFixed(1)), hum: 12.5, co2: Math.round(400 + (300 * i) / 24), etanol: Math.round((50 * i) / 24) })
 };
 export function simularAnomalia(tipo) {
   const ahora = Date.now();
@@ -337,15 +358,17 @@ export function iniciarLiberacion(silo) {
   for (const nodo of silo.nodos) {
     const ultima = lecturas(nodo.id).at(-1);
     if (!ultima) continue;
-    recuperaciones[nodo.id] = { desde: { ph: ultima.ph, temp: ultima.temp, hum: ultima.hum, co2: ultima.co2 }, inicio: Date.now() };
+    recuperaciones[nodo.id] = { desde: { ph: ultima.ph, temp: ultima.temp, hum: ultima.hum, co2: ultima.co2, etanol: ultima.etanol ?? 0 }, inicio: Date.now() };
   }
   if (!temporizadorRecuperacion) temporizadorRecuperacion = setInterval(avanzarRecuperaciones, PASO_RECUPERACION);
   guardar();
 }
 
-// ¿Hay algún nodo volviendo al objetivo ahora mismo? Lo usa el cartel de la alarma.
-export function liberandoCO2() {
-  return Object.keys(recuperaciones).length > 0;
+// ¿Este nodo está volviendo al objetivo ahora mismo (la central libera CO₂)? Lo usa el cartel de la alarma.
+// Sin nodo, dice si hay alguno. Un nodo sin lecturas nunca entra en la liberación.
+export function liberandoCO2(nodoId) {
+  if (nodoId == null) return Object.keys(recuperaciones).length > 0;
+  return !!recuperaciones[nodoId];
 }
 
 const DURACION_RECUPERACION = 90 * 1000;
@@ -409,7 +432,7 @@ export function instalarApiDemo() {
     close() { oyentes.splice(oyentes.indexOf(this), 1); }
   };
   // Las alarmas críticas que ya estaban sin descartar también están liberando CO₂.
-  for (const a of estado.alertas) if (a.nivel === 'crit' && !a.reconocida && !liberandoCO2()) iniciarLiberacion(nodoDe(a.nodo_id).silo);
+  for (const a of estado.alertas) { const info = nodoDe(a.nodo_id); if (info && a.nivel === 'crit' && !a.reconocida && !liberandoCO2(a.nodo_id)) iniciarLiberacion(info.silo); }
   latir();
   setInterval(latir, 30 * 1000);
 }

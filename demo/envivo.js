@@ -18,7 +18,11 @@ const BASE_NODO = 9000;              // nodo de la cápsula N = 9000 + N
 const BASE_ALERTA = 90000;
 const MIN = 60 * 1000, DIA = 24 * 60 * MIN;
 const RANGOS = { '24h': { n: 48, paso: 30 * MIN }, '7d': { n: 84, paso: 120 * MIN }, '30d': { n: 90, paso: 480 * MIN } };
-const VARS = ['ph', 'temp', 'hum', 'co2'];
+const VARS = ['ph', 'temp', 'hum', 'co2', 'etanol'];
+// Igual que la app del celular (Apps Script):
+//   etanol = lo que mide el sensor MQ de la cápsula (campo «gas»), en % sobre su base, con su signo;
+//   co2    = CO₂ en ppm que calcula la app de Apps Script: 430 ppm del ambiente, que baja de forma
+//            lenta y progresiva mientras el etanol está disparado (alerta de aire).
 
 // pH: el que manda la central es simulado y no es real, así que NO se copia. Se simula acá,
 // oscilando suave alrededor del objetivo (7,0), entre 6,67 y 7,33: siempre dentro del rango habitual (6 a 8).
@@ -43,7 +47,10 @@ function cargar() {
     if (r) {
       const e = JSON.parse(r);
       // Las lecturas guardadas antes tenían el pH de la central: se reemplaza por el simulado.
-      for (const c of Object.values(e.capsulas || {})) for (const l of c.lecturas || []) { l.ph = phSimulado(l.ts); if (l.co2 != null) l.co2 = Math.abs(l.co2); }
+      for (const c of Object.values(e.capsulas || {})) for (const l of c.lecturas || []) { l.ph = phSimulado(l.ts); }
+      // Antes el CO₂ guardado era el gas del sensor (en %). Ahora el gas es el etanol y el CO₂ viene en ppm:
+      // se descartan las lecturas viejas (la app de Apps Script vuelve a mandar el historial reciente).
+      if (!e.unidadesCelular) { for (const c of Object.values(e.capsulas || {})) c.lecturas = []; e.unidadesCelular = true; }
       // Versiones anteriores creaban un «Sin señal» nuevo cada vez que se descartaba: se deja solo el último de cada cápsula.
       const ultimoSinSenal = {};
       for (const a of e.alertas || []) if (a.variable === 'sin_datos' && (!ultimoSinSenal[a.nodo_id] || a.ts > ultimoSinSenal[a.nodo_id].ts)) ultimoSinSenal[a.nodo_id] = a;
@@ -52,13 +59,13 @@ function cargar() {
       return e;
     }
   } catch (e) { /* nada */ }
-  return { capsulas: {}, centrales: {}, alertas: [], silenciada: false, ultimaOk: 0 };
+  return { capsulas: {}, centrales: {}, alertas: [], silenciada: false, ultimaOk: 0, unidadesCelular: true };
 }
 function guardar() { try { window.localStorage.setItem(CLAVE, JSON.stringify(est)); } catch (e) { /* queda en memoria */ } }
 
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
-// CO₂: la cápsula a veces manda el gas con signo negativo. Se usa siempre su valor absoluto (módulo).
-const co2 = (x) => { const n = num(x); return n == null ? null : Math.abs(n); };
+// Etanol: el campo «etanol» si viene; si no, el «gas» del sensor MQ (como la app del celular).
+const etanolDe = (x) => num(x.etanol) ?? num(x.gas);
 const idsCapsulas = () => Object.keys(est.capsulas).map(Number).sort((a, b) => a - b);
 const hayEnVivo = () => idsCapsulas().length > 0;
 
@@ -86,11 +93,11 @@ async function sincronizar() {
     const c = est.capsulas[cap.id] || (est.capsulas[cap.id] = { lecturas: [] });
     c.ultima = { fecha: cap.fecha, online: !!cap.online, motivo: cap.motivo || '', hace: num(cap.hace) ?? 0, recibido: Date.now(),
       limite: num(datos.limiteCapsula) ?? LIMITE_PREDETERMINADO,
-      alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: co2(cap.gas), lat: num(cap.lat), lon: num(cap.lon),
+      alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: etanolDe(cap), co2: num(cap.co2), lat: num(cap.lat), lon: num(cap.lon),
       ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum) };
     const conocidas = new Set(c.lecturas.map((l) => l.ts));
-    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: num(h.temp), hum: num(h.hum), co2: co2(h.gas) })),
-      { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum), co2: co2(cap.gas) }];
+    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: num(h.temp), hum: num(h.hum), co2: num(h.co2), etanol: etanolDe(h) })),
+      { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum), co2: num(cap.co2), etanol: etanolDe(cap) }];
     for (const l of entrantes) {
       if (typeof l.ts !== 'number' || conocidas.has(l.ts)) continue;
       c.lecturas.push(l); conocidas.add(l.ts); nuevas++;
@@ -106,9 +113,10 @@ async function sincronizar() {
       const ahora = Date.now();
       const valvula = Number(cap.valvula) >= 1;
       est.alertas.push({
-        id: nuevoIdAlerta(), nodo_id: nodoId, variable: 'rotura', etiqueta: 'Alerta de aire', valor: co2(cap.gas) ?? 0, nivel: 'crit',
+        id: nuevoIdAlerta(), nodo_id: nodoId, variable: 'rotura', etiqueta: 'Alerta de aire', valor: num(cap.co2) ?? 0, nivel: 'crit',
         ts: cap.fecha || ahora, reconocida: 0, creada: ahora, notificada: 1, leido: 0,
-        diagnostico: 'Alerta de aire: la cápsula ' + cap.id + ' detectó un aumento brusco de gases dentro de la bolsa.' +
+        diagnostico: 'Alerta de aire: la cápsula ' + cap.id + ' detectó un aumento brusco de etanol' +
+          (etanolDe(cap) != null ? ' (+' + Math.round(etanolDe(cap)) + ' % sobre la base)' : '') + '. El CO₂ baja de forma lenta y progresiva.' +
           (valvula ? ' La válvula de CO₂ se abrió 3 segundos.' : '')
       });
       alertasNuevas++;
@@ -204,7 +212,7 @@ function revisarSenal() {
 const PATRON_VARS = { rotura: ['co2', 'hum'], fermentacion: ['temp', 'co2'] };
 const PATRON_NOMBRE = { rotura: 'Posible rotura o ingreso de aire', fermentacion: 'Posible fermentación' };
 const SOSTENIDO = 60 * 1000;
-const NOMBRES = { ph: ['pH', ''], temp: ['Temperatura', ' °C'], hum: ['Humedad', ' %'], co2: ['CO₂', ' %'] };
+const NOMBRES = { ph: ['pH', ''], temp: ['Temperatura', ' °C'], hum: ['Humedad', ' %'], co2: ['CO₂', ' ppm'], etanol: ['Etanol', ' %'] };
 
 // Se leen directo de la demo: pedirlos por /api/umbrales exige la sesión (desde la pantalla de ingreso)
 // y sin umbrales no saltaba ninguna alerta por valores.
@@ -216,7 +224,7 @@ const regla = (reglas, k) => reglas.find((x) => x.key === k);
 function lado(x, r) { if (x == null || !r) return null; return x > r.max ? 'alto' : (x < r.min ? 'bajo' : null); }
 const coma = (x, d) => x.toFixed(d).replace('.', ',');
 function textoValor(k, x, r) {
-  const [nombre, u] = NOMBRES[k], d = k === 'ph' || k === 'co2' ? 2 : 1;
+  const [nombre, u] = NOMBRES[k], d = k === 'ph' ? 2 : (k === 'co2' || k === 'etanol' ? 0 : 1);
   return nombre + ' ' + coma(x, d) + u + (x > r.max ? ' (sobre el máximo de ' + coma(r.max, d) + u + ')' : ' (bajo el mínimo de ' + coma(r.min, d) + u + ')');
 }
 // Último valor conocido de cada variable (el historial a veces trae campos vacíos).
@@ -336,6 +344,13 @@ function siloVivo() {
     })
   };
 }
+// «Liberando CO₂» en una alerta de cápsula real: solo si la cápsula está en línea y la central informa la válvula abierta.
+// Desconectada, no se muestra nada.
+window.__agrynLiberandoVivo = (nodoId) => {
+  const c = est.capsulas[nodoId - BASE_NODO];
+  return !!(c && c.ultima && enLinea(c) && c.ultima.valvula >= 1);
+};
+
 // Mientras una cápsula está sin señal, sus alertas por valores quedan en pausa: los datos no son actuales.
 // Se ve solo «Sin señal». Cuando vuelve, reaparecen las mismas (sin avisos nuevos) y se cierran solas si los valores ya están bien.
 function vigente(a) {

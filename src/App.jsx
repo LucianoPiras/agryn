@@ -4,7 +4,8 @@ const VARS = [
   { key: 'ph',   name: 'pH',          unit: '',   dec: 2, min: 6, max: 8 },
   { key: 'temp', name: 'Temperatura', unit: '°C', dec: 1, min: 16,  max: 18 },
   { key: 'hum',  name: 'Humedad',     unit: '%',  dec: 1, min: 11,  max: 13 },
-  { key: 'co2',  name: 'CO₂',         unit: '%',  dec: 2, min: 5.5, max: 7.5 }
+  { key: 'co2',  name: 'CO₂',         unit: 'ppm', dec: 0, min: 380, max: 480 },
+  { key: 'etanol', name: 'Etanol',    unit: '%',  dec: 0, min: -20, max: 40 }
 ];
 const RANGES = {
   '24h': { n: 48, step: 30,  label: '24 h',    ticks: ['-24 h', '-18 h', '-12 h', '-6 h', 'Ahora'] },
@@ -24,7 +25,7 @@ const SESION = 'agryn-sesion-v1';
 // Avisos que se ven sin tocar «Ver más» en el centro de avisos.
 const AVISOS_A_LA_VISTA = 6;
 // Nombres cortos para la barra inferior del celular.
-const CORTO = { ph: 'pH', temp: 'Temp.', hum: 'Hum.', co2: 'CO₂' };
+const CORTO = { ph: 'pH', temp: 'Temp.', hum: 'Hum.', co2: 'CO₂', etanol: 'Etanol' };
 const PATRON_VARS = { rotura: ['co2', 'hum'], fermentacion: ['temp', 'co2'] };
 const CODE_TTL = 5 * 60 * 1000;
 // Pasa una silobolsa de la API al formato que usa la pantalla.
@@ -419,7 +420,7 @@ export default class App extends React.Component {
     const banners = unacked.map((a) => {
       const crit = a.sev === 'crit';
       return {
-      id: a.id,
+      id: a.id, bid: a.bid, nid: a.nid,
       bg: crit ? '#B02A18' : '#FFF4DD',
       border: crit ? '#7A1B0F' : '#B7791F',
       accent: crit ? '#FAF6E9' : '#8A4D00',
@@ -1112,7 +1113,7 @@ export default class App extends React.Component {
       </h1>
       {v.isOverview && (<>
       <p className="solo-escritorio" style={{ margin: "4px 0 0", maxWidth: "56ch", color: "#4F6459" }}>
-      Seguimos el pH, la temperatura, la humedad y el CO₂ de cada nodo dentro de la silobolsa, y te avisamos al instante si algo se sale de lo normal.
+      Seguimos el pH, la temperatura, la humedad, el CO₂ y el etanol de cada nodo dentro de la silobolsa, y te avisamos al instante si algo se sale de lo normal.
       </p>
       </>)}
       </div>
@@ -1156,7 +1157,7 @@ export default class App extends React.Component {
       {v.hasBanner && (<>
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       {v.banners.map((b) => (<React.Fragment key={b.id}>
-      <section role="alert" aria-live="assertive" className="flash banner-alerta" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: `${b.bg}`, border: `1px solid ${b.border}`, color: `${b.fg}` }}>
+      <section role="alert" aria-live="assertive" className="flash banner-alerta" data-silobolsa={b.bid} data-nodo={b.nid} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px", padding: "16px 20px", borderRadius: "12px", background: `${b.bg}`, border: `1px solid ${b.border}`, color: `${b.fg}` }}>
       <span className="icono-alerta" style={{ width: "44px", height: "44px", flex: "none", borderRadius: "999px", background: `${b.iconBg}`, color: `${b.iconFg}`, display: "grid", placeItems: "center" }} aria-hidden="true">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3 2.5 20h19L12 3Z" />
@@ -1324,7 +1325,7 @@ export default class App extends React.Component {
       Nodos de {v.bagName}
       </h2>
       <p style={{ margin: "6px 0 0", fontSize: "13px", color: "#4F6459" }}>
-      Cada nodo mide los mismos cuatro valores.
+      Cada nodo mide los mismos cinco valores.
       </p>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" }}>

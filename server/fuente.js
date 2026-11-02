@@ -2,8 +2,11 @@
 // El servidor consulta cada 30 segundos su API (?api=datos) y guarda las lecturas en el nodo
 // que corresponde a cada cápsula. Cada cápsula se asocia a un nodo cuyo identificador es "cap-<id>".
 //
-// Campos que usamos: temp, hum y gas (que es el CO₂ dentro de la bolsa, en %).
-// El gas a veces llega con signo negativo: se guarda siempre su valor absoluto (módulo).
+// Campos que usamos (igual que la app del celular):
+//   gas  = lo que mide el sensor MQ de la cápsula: es el ETANOL, en % sobre su base (puede ser negativo).
+//   co2  = CO₂ en ppm. La cápsula no tiene sensor de CO₂: la app de Apps Script lo calcula (430 ppm del
+//          ambiente, que baja de forma lenta y progresiva mientras dura la alerta de etanol).
+// Si la app todavía no manda co2, queda vacío («—»).
 // El pH que manda la central es simulado y no es real, así que NO se copia: la app lo simula
 // alrededor del objetivo, siempre dentro del rango habitual (phSimulado).
 // La lectura más nueva y el historial se guardan sin repetir (la base ignora las marcas de tiempo ya cargadas).
@@ -25,7 +28,8 @@ export function phSimulado(ts, objetivo = PH.objetivo) {
 const numero = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 
 export function lecturaDeCapsula(cap, ts = cap.fecha) {
-  return { ph: phSimulado(ts), temp: numero(cap.temp), hum: numero(cap.hum), co2: numero(cap.gas) == null ? null : Math.abs(cap.gas) };
+  const etanol = numero(cap.etanol) ?? numero(cap.gas);
+  return { ph: phSimulado(ts), temp: numero(cap.temp), hum: numero(cap.hum), co2: numero(cap.co2), etanol };
 }
 
 // Lee la API una vez y guarda lo nuevo. Devuelve cuántas lecturas se agregaron.
@@ -38,10 +42,10 @@ export async function sincronizarFuente({ url, repo, bus, fetchFn = fetch }) {
   for (const cap of datos.capsulas || []) {
     const nodo = repo.nodoPorDevice(PREFIJO_CAPSULA + cap.id);
     if (!nodo) continue;
-    const lecturas = [...(cap.hist || []).map((h) => ({ ts: h.t, ...lecturaDeCapsula({ temp: h.temp, hum: h.hum, gas: h.gas }, h.t) })), { ts: cap.fecha, ...lecturaDeCapsula(cap) }];
+    const lecturas = [...(cap.hist || []).map((h) => ({ ts: h.t, ...lecturaDeCapsula({ temp: h.temp, hum: h.hum, gas: h.gas, etanol: h.etanol, co2: h.co2 }, h.t) })), { ts: cap.fecha, ...lecturaDeCapsula(cap) }];
     for (const l of lecturas) {
       if (typeof l.ts !== 'number') continue;
-      if (repo.guardarLectura(nodo.id, Math.round(l.ts), { ph: l.ph, temp: l.temp, hum: l.hum, co2: l.co2 })) { nuevas++; nodosConDatos.push(nodo.id); }
+      if (repo.guardarLectura(nodo.id, Math.round(l.ts), { ph: l.ph, temp: l.temp, hum: l.hum, co2: l.co2, etanol: l.etanol })) { nuevas++; nodosConDatos.push(nodo.id); }
     }
   }
   const cerradas = cerrarResueltas(repo, nodosConDatos);

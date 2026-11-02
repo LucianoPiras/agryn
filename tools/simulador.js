@@ -46,7 +46,7 @@ function valorEn(dispositivo, v, ts) {
   const onda = Math.sin(ts / (6 * 3600 * 1000) * Math.PI * 2 + fase) * 0.5;
   const ruido = (Math.random() - 0.5) * 0.2;
   const x = medio + mitad * (onda + ruido);
-  return Number(x.toFixed(v.key === 'ph' || v.key === 'co2' ? 2 : 1));
+  return Number(x.toFixed(v.key === 'ph' ? 2 : (v.key === 'co2' || v.key === 'etanol' ? 0 : 1)));
 }
 
 function lectura(dispositivo, ts, anomalia = false) {

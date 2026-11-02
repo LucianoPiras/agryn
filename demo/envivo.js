@@ -43,7 +43,12 @@ function cargar() {
     if (r) {
       const e = JSON.parse(r);
       // Las lecturas guardadas antes tenían el pH de la central: se reemplaza por el simulado.
-      for (const c of Object.values(e.capsulas || {})) for (const l of c.lecturas || []) l.ph = phSimulado(l.ts);
+      for (const c of Object.values(e.capsulas || {})) for (const l of c.lecturas || []) { l.ph = phSimulado(l.ts); if (l.co2 != null) l.co2 = Math.abs(l.co2); }
+      // Versiones anteriores creaban un «Sin señal» nuevo cada vez que se descartaba: se deja solo el último de cada cápsula.
+      const ultimoSinSenal = {};
+      for (const a of e.alertas || []) if (a.variable === 'sin_datos' && (!ultimoSinSenal[a.nodo_id] || a.ts > ultimoSinSenal[a.nodo_id].ts)) ultimoSinSenal[a.nodo_id] = a;
+      e.alertas = (e.alertas || []).filter((a) => a.variable !== 'sin_datos' || ultimoSinSenal[a.nodo_id] === a);
+      for (const a of Object.values(ultimoSinSenal)) if (a.reconocida && e.capsulas[a.nodo_id - BASE_NODO]) e.capsulas[a.nodo_id - BASE_NODO].sinSenalAvisada = true;
       return e;
     }
   } catch (e) { /* nada */ }
@@ -52,6 +57,8 @@ function cargar() {
 function guardar() { try { window.localStorage.setItem(CLAVE, JSON.stringify(est)); } catch (e) { /* queda en memoria */ } }
 
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+// CO₂: la cápsula a veces manda el gas con signo negativo. Se usa siempre su valor absoluto (módulo).
+const co2 = (x) => { const n = num(x); return n == null ? null : Math.abs(n); };
 const idsCapsulas = () => Object.keys(est.capsulas).map(Number).sort((a, b) => a - b);
 const hayEnVivo = () => idsCapsulas().length > 0;
 
@@ -79,11 +86,11 @@ async function sincronizar() {
     const c = est.capsulas[cap.id] || (est.capsulas[cap.id] = { lecturas: [] });
     c.ultima = { fecha: cap.fecha, online: !!cap.online, motivo: cap.motivo || '', hace: num(cap.hace) ?? 0, recibido: Date.now(),
       limite: num(datos.limiteCapsula) ?? LIMITE_PREDETERMINADO,
-      alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: num(cap.gas), lat: num(cap.lat), lon: num(cap.lon),
+      alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: co2(cap.gas), lat: num(cap.lat), lon: num(cap.lon),
       ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum) };
     const conocidas = new Set(c.lecturas.map((l) => l.ts));
-    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: num(h.temp), hum: num(h.hum), co2: num(h.gas) })),
-      { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum), co2: num(cap.gas) }];
+    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: num(h.temp), hum: num(h.hum), co2: co2(h.gas) })),
+      { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum), co2: co2(cap.gas) }];
     for (const l of entrantes) {
       if (typeof l.ts !== 'number' || conocidas.has(l.ts)) continue;
       c.lecturas.push(l); conocidas.add(l.ts); nuevas++;
@@ -99,7 +106,7 @@ async function sincronizar() {
       const ahora = Date.now();
       const valvula = Number(cap.valvula) >= 1;
       est.alertas.push({
-        id: nuevoIdAlerta(), nodo_id: nodoId, variable: 'rotura', etiqueta: 'Alerta de aire', valor: num(cap.gas) ?? 0, nivel: 'crit',
+        id: nuevoIdAlerta(), nodo_id: nodoId, variable: 'rotura', etiqueta: 'Alerta de aire', valor: co2(cap.gas) ?? 0, nivel: 'crit',
         ts: cap.fecha || ahora, reconocida: 0, creada: ahora, notificada: 1, leido: 0,
         diagnostico: 'Alerta de aire: la cápsula ' + cap.id + ' detectó un aumento brusco de gases dentro de la bolsa.' +
           (valvula ? ' La válvula de CO₂ se abrió 3 segundos.' : '')
@@ -162,7 +169,10 @@ function revisarSenal() {
     const abierta = est.alertas.find((a) => a.nodo_id === nodoId && a.variable === 'sin_datos' && !a.reconocida);
     const vivo = enLinea(c);
     if (c.enLinea !== vivo) { c.enLinea = vivo; cambio = true; }
-    if (!vivo && !abierta && c.ultima) {
+    // Un solo «Sin señal» por desconexión: si lo descartás, no vuelve hasta que la cápsula se reconecte y se corte de nuevo.
+    if (vivo) c.sinSenalAvisada = false;
+    if (!vivo && !abierta && !c.sinSenalAvisada && c.ultima) {
+      c.sinSenalAvisada = true;
       const ahora = Date.now(), motivo = c.ultima.motivo || 'no llegan datos nuevos';
       est.alertas.push({
         id: nuevoIdAlerta(), nodo_id: nodoId, variable: 'sin_datos', etiqueta: 'Sin señal', valor: 0, nivel: 'warn',   // advertencia: no se libera CO₂
@@ -196,7 +206,10 @@ const PATRON_NOMBRE = { rotura: 'Posible rotura o ingreso de aire', fermentacion
 const SOSTENIDO = 60 * 1000;
 const NOMBRES = { ph: ['pH', ''], temp: ['Temperatura', ' °C'], hum: ['Humedad', ' %'], co2: ['CO₂', ' %'] };
 
+// Se leen directo de la demo: pedirlos por /api/umbrales exige la sesión (desde la pantalla de ingreso)
+// y sin umbrales no saltaba ninguna alerta por valores.
 async function umbralesVigentes() {
+  if (window.__agrynUmbrales) return window.__agrynUmbrales();
   try { const r = await fetchDemo('/api/umbrales'); return r.ok ? await r.json() : []; } catch (e) { return []; }
 }
 const regla = (reglas, k) => reglas.find((x) => x.key === k);
@@ -323,6 +336,13 @@ function siloVivo() {
     })
   };
 }
+// Mientras una cápsula está sin señal, sus alertas por valores quedan en pausa: los datos no son actuales.
+// Se ve solo «Sin señal». Cuando vuelve, reaparecen las mismas (sin avisos nuevos) y se cierran solas si los valores ya están bien.
+function vigente(a) {
+  if (a.variable === 'sin_datos') return true;
+  const c = est.capsulas[a.nodo_id - BASE_NODO];
+  return !c || enLinea(c);
+}
 function alertaVista(a) {
   return { ...a, nodo: 'Cápsula ' + (a.nodo_id - BASE_NODO), silobolsa: 'Cápsulas AGRYN (en vivo)', silobolsa_id: SILO_ID, etiqueta: a.etiqueta || 'Alerta de aire', descripcion: a.diagnostico };
 }
@@ -363,7 +383,7 @@ async function responder(url, metodo, opciones) {
   if (p === '/api/alertas' && metodo === 'GET') {
     const reconocidas = new URL(url, 'http://demo').searchParams.get('reconocidas') === '1';
     const lista = await (await fetchDemo(url, opciones)).json();
-    const vivas = est.alertas.filter((a) => !!a.reconocida === reconocidas).map(alertaVista);
+    const vivas = est.alertas.filter((a) => !!a.reconocida === reconocidas && (reconocidas || vigente(a))).map(alertaVista);
     return json([...vivas, ...lista].sort((a, b) => b.ts - a.ts));
   }
   if ((m = p.match(/^\/api\/alertas\/(\d+)\/reconocer$/)) && Number(m[1]) > BASE_ALERTA) {

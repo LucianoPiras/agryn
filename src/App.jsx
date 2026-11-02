@@ -21,6 +21,8 @@ const CONTENIDOS = ['Soja', 'Maíz', 'Trigo', 'Girasol', 'Sorgo', 'Cebada', 'For
 const SIN_SILO = { id: -1, name: 'Sin silobolsas', content: 'Sin definir', custom: '', nodes: [] };
 const SESION = 'agryn-sesion-v1';
 // Variables que marca cada patrón de riesgo en los nodos.
+// Avisos que se ven sin tocar «Ver más» en el centro de avisos.
+const AVISOS_A_LA_VISTA = 6;
 // Nombres cortos para la barra inferior del celular.
 const CORTO = { ph: 'pH', temp: 'Temp.', hum: 'Hum.', co2: 'CO₂' };
 const PATRON_VARS = { rotura: ['co2', 'hum'], fermentacion: ['temp', 'co2'] };
@@ -82,7 +84,7 @@ export default class App extends React.Component {
     super(props);
     this.state = {
       bags: [], datos: {}, alertas: [], view: 'overview', range: '24h', bag: null, node: null, cursor: null, tick: 0,
-      nuevoNodo: '', avisoApp: '', pushActivo: false, avisos: [], noLeidos: 0, avisosAbiertos: false, preferencias: [], menuAbierto: false, umbrales: VARS, umbralesAbiertos: false, umbralEdit: {}, form: { open: false, name: '', content: 'Sin definir' },
+      nuevoNodo: '', avisoApp: '', pushActivo: false, avisos: [], noLeidos: 0, avisosAbiertos: false, avisosTodos: false, preferencias: [], menuAbierto: false, umbrales: VARS, umbralesAbiertos: false, umbralEdit: {}, form: { open: false, name: '', content: 'Sin definir' },
       del: { step: null, pw: '', err: false }, confirm: null, confirmAt: 0,
       auth: { user: null, token: null, enviando: false, paso: 'login', email: '', pw: '', code: '', vence: 0, err: '', aviso: '' }
     };
@@ -695,7 +697,11 @@ export default class App extends React.Component {
     return {
       bagName: bo.name, scopeLabel, ultimaRecepcion, centrales, hayCentrales: centrales.length > 0,
       logueado: !!A.user, usuario: A.user || '', avisoApp: S.avisoApp, nuevoNodo: S.nuevoNodo, onNuevoNodo, onNuevoNodoKey,
-      avisosList, preferenciasList, noLeidos: S.noLeidos, avisosAbiertos: S.avisosAbiertos,
+      // Centro de avisos: primero los más recientes; el resto, con «Ver más».
+      avisosList, avisosVisibles: S.avisosTodos ? avisosList : avisosList.slice(0, AVISOS_A_LA_VISTA),
+      avisosOcultos: Math.max(0, avisosList.length - AVISOS_A_LA_VISTA), avisosTodos: S.avisosTodos,
+      toggleAvisosTodos: () => self.setState((s) => ({ avisosTodos: !s.avisosTodos })),
+      preferenciasList, noLeidos: S.noLeidos, avisosAbiertos: S.avisosAbiertos,
       menuAbierto: S.menuAbierto,
       toggleMenu: () => self.setState((s) => ({ menuAbierto: !s.menuAbierto })),
       cerrarMenu: () => self.setState({ menuAbierto: false }),
@@ -1053,24 +1059,11 @@ export default class App extends React.Component {
       {v.permisoAvisos === 'denied' && (<p role="note" style={{ margin: "0", fontSize: "13px", color: "#8F2113", fontWeight: "600" }}>
       Las notificaciones de este navegador están bloqueadas. Para verlas, habilitalas en la configuración del navegador. Mientras tanto, las alertas críticas aparecen en el banner rojo de la app y llegan por correo.
       </p>)}
-      {v.preferenciasList.length > 0 && (<fieldset style={{ margin: "0", padding: "12px", borderRadius: "8px", border: "1px solid #DCE5E0", display: "flex", flexDirection: "column", gap: "4px" }}>
-      <legend style={{ padding: "0 4px", fontSize: "13px", fontWeight: "600" }}>
-      Silobolsas de las que querés recibir avisos
-      </legend>
-      {v.preferenciasList.map((p, $index) => (<React.Fragment key={$index}>
-      <label style={{ display: "flex", alignItems: "center", gap: "10px", minHeight: "44px", cursor: "pointer" }}>
-      <input type="checkbox" checked={p.recibe} onChange={p.cambiar} style={{ width: "20px", height: "20px", accentColor: "#005A36", flex: "none" }} />
-      <span>
-      {p.nombre}{p.recibe ? "" : " (silenciada)"}
-      </span>
-      </label>
-      </React.Fragment>))}
-      </fieldset>)}
       {v.avisosList.length === 0 && (<p style={{ margin: "0", color: "#4F6459" }}>
       Todavía no hay avisos. Te llegan cuando una alerta sigue sin reconocerse.
       </p>)}
-      {v.avisosList.map((a, $index) => (<React.Fragment key={$index}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderRadius: "8px", border: "1px solid #DCE5E0", background: a.leido ? "transparent" : "#F1F6F3" }}>
+      {v.avisosVisibles.map((a, $index) => (<React.Fragment key={$index}>
+      <div className="aviso-item" style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderRadius: "8px", border: "1px solid #DCE5E0", background: a.leido ? "transparent" : "#F1F6F3" }}>
       <div style={{ flex: "1 1 220px", minWidth: "0" }}>
       <p style={{ margin: "0", fontWeight: "600" }}>
       {a.titulo}
@@ -1089,6 +1082,25 @@ export default class App extends React.Component {
       </div>
       </div>
       </React.Fragment>))}
+      {v.avisosOcultos > 0 && (<button type="button" className="btn" onClick={v.toggleAvisosTodos} aria-expanded={v.avisosTodos}>
+      {v.avisosTodos ? "Ver solo los más recientes" : "Ver " + v.avisosOcultos + (v.avisosOcultos === 1 ? " aviso anterior" : " avisos anteriores")}
+      </button>)}
+      {v.preferenciasList.length > 0 && (<details className="aviso-preferencias">
+      <summary>Elegí de qué silobolsas recibir avisos</summary>
+      <fieldset style={{ margin: "8px 0 0", padding: "12px", borderRadius: "8px", border: "1px solid #DCE5E0", display: "flex", flexDirection: "column", gap: "4px" }}>
+      <legend style={{ padding: "0 4px", fontSize: "13px", fontWeight: "600" }}>
+      Silobolsas de las que querés recibir avisos
+      </legend>
+      {v.preferenciasList.map((p, $index) => (<React.Fragment key={$index}>
+      <label style={{ display: "flex", alignItems: "center", gap: "10px", minHeight: "44px", cursor: "pointer" }}>
+      <input type="checkbox" checked={p.recibe} onChange={p.cambiar} style={{ width: "20px", height: "20px", accentColor: "#005A36", flex: "none" }} />
+      <span>
+      {p.nombre}{p.recibe ? "" : " (silenciada)"}
+      </span>
+      </label>
+      </React.Fragment>))}
+      </fieldset>
+      </details>)}
       </section>)}
       <header style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "flex-end", justifyContent: "space-between" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "6px", minWidth: "0" }}>

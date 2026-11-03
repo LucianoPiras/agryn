@@ -63,7 +63,7 @@ test('el pH de la central no se copia: se simula dentro del rango habitual', asy
   assert.equal(lecturas.at(-1).ph, phSimulado(t0 + 6 * HORA), 'mismo valor para la misma hora');
 });
 
-test('el gas del sensor MQ es el etanol, con su signo; sin co2 de la app, el CO₂ queda vacío', async () => {
+test('el gas del sensor MQ es el etanol (un negativo se toma como 0); sin co2 de la app, el CO₂ queda vacío', async () => {
   const repo = crearRepo(abrirBase(':memory:'));
   const silo = repo.crearSilobolsa('Silo CO2', 'Soja');
   repo.crearNodo(silo.id, 'Cápsula 3', 'cap-3');
@@ -71,8 +71,19 @@ test('el gas del sensor MQ es el etanol, con su signo; sin co2 de la app, el CO�
   const { fetchFn } = fuenteFalsa({ capsulas: [{ id: 3, fecha: t0 + 60000, temp: 17, hum: 12, gas: -0.2, hist: [{ t: t0, temp: 17, hum: 12, gas: -76.8 }, { t: t0 + 30000, temp: 17, hum: 12, gas: null }] }] });
   await sincronizarFuente({ url: URL_FUENTE, repo, fetchFn });
   const l = repo.lecturasEntre(repo.nodoPorDevice('cap-3').id, 0, Date.now());
-  assert.deepEqual(l.map((x) => x.etanol), [-76.8, null, -0.2]);
+  assert.deepEqual(l.map((x) => x.etanol), [0, null, 0], 'etanol negativo → 0');
   assert.deepEqual(l.map((x) => x.co2), [null, null, null]);
+});
+
+test('ninguna medición negativa: CO₂, temperatura y humedad negativos se guardan como 0', async () => {
+  const repo = crearRepo(abrirBase(':memory:'));
+  const silo = repo.crearSilobolsa('Silo Negativos', 'Soja');
+  repo.crearNodo(silo.id, 'Cápsula 5', 'cap-5');
+  const t0 = Date.now() - HORA;
+  const { fetchFn } = fuenteFalsa({ capsulas: [{ id: 5, fecha: t0, temp: -1.5, hum: -3, co2: -12, gas: 25, hist: [] }] });
+  await sincronizarFuente({ url: URL_FUENTE, repo, fetchFn });
+  const [l] = repo.lecturasEntre(repo.nodoPorDevice('cap-5').id, 0, Date.now());
+  assert.deepEqual([l.temp, l.hum, l.co2, l.etanol], [0, 0, 0, 25]);
 });
 
 test('el etanol de la cápsula se guarda junto a las demás variables', async () => {

@@ -26,10 +26,12 @@ export function phSimulado(ts, objetivo = PH.objetivo) {
 }
 
 const numero = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+// Mediciones sin negativos: un valor negativo de la cápsula (temperatura, humedad, CO₂ o etanol) se guarda como 0.
+const medicion = (x) => { const n = numero(x); return n == null ? null : Math.max(0, n); };
 
 export function lecturaDeCapsula(cap, ts = cap.fecha) {
-  const etanol = numero(cap.etanol) ?? numero(cap.gas);
-  return { ph: phSimulado(ts), temp: numero(cap.temp), hum: numero(cap.hum), co2: numero(cap.co2), etanol };
+  const etanol = medicion(numero(cap.etanol) ?? numero(cap.gas));
+  return { ph: phSimulado(ts), temp: medicion(cap.temp), hum: medicion(cap.hum), co2: medicion(cap.co2), etanol };
 }
 
 // Lee la API una vez y guarda lo nuevo. Devuelve cuántas lecturas se agregaron.

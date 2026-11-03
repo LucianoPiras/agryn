@@ -47,7 +47,10 @@ function cargar() {
     if (r) {
       const e = JSON.parse(r);
       // Las lecturas guardadas antes tenían el pH de la central: se reemplaza por el simulado.
-      for (const c of Object.values(e.capsulas || {})) for (const l of c.lecturas || []) { l.ph = phSimulado(l.ts); }
+      for (const c of Object.values(e.capsulas || {})) for (const l of c.lecturas || []) {
+        l.ph = phSimulado(l.ts);
+        for (const k of ['temp', 'hum', 'co2', 'etanol']) if (typeof l[k] === 'number' && l[k] < 0) l[k] = 0;   // sin negativos
+      }
       // Antes el CO₂ guardado era el gas del sensor (en %). Ahora el gas es el etanol y el CO₂ viene en ppm:
       // se descartan las lecturas viejas (la app de Apps Script vuelve a mandar el historial reciente).
       if (!e.unidadesCelular) { for (const c of Object.values(e.capsulas || {})) c.lecturas = []; e.unidadesCelular = true; }
@@ -65,7 +68,10 @@ function guardar() { try { window.localStorage.setItem(CLAVE, JSON.stringify(est
 
 const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 // Etanol: el campo «etanol» si viene; si no, el «gas» del sensor MQ (como la app del celular).
-const etanolDe = (x) => num(x.etanol) ?? num(x.gas);
+// Mediciones sin negativos: si la cápsula manda un valor negativo (temperatura, humedad, CO₂ o etanol), se toma como 0.
+// (Las coordenadas y los tiempos no pasan por acá: pueden ser negativos.)
+const med = (x) => { const n = num(x); return n == null ? null : Math.max(0, n); };
+const etanolDe = (x) => med(num(x.etanol) ?? num(x.gas));
 const idsCapsulas = () => Object.keys(est.capsulas).map(Number).sort((a, b) => a - b);
 const hayEnVivo = () => idsCapsulas().length > 0;
 
@@ -93,11 +99,11 @@ async function sincronizar() {
     const c = est.capsulas[cap.id] || (est.capsulas[cap.id] = { lecturas: [] });
     c.ultima = { fecha: cap.fecha, online: !!cap.online, motivo: cap.motivo || '', hace: num(cap.hace) ?? 0, recibido: Date.now(),
       limite: num(datos.limiteCapsula) ?? LIMITE_PREDETERMINADO,
-      alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: etanolDe(cap), co2: num(cap.co2), lat: num(cap.lat), lon: num(cap.lon),
-      ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum) };
+      alerta: !!cap.alerta, valvula: Number(cap.valvula) || 0, gas: etanolDe(cap), co2: med(cap.co2), lat: num(cap.lat), lon: num(cap.lon),
+      ph: phSimulado(cap.fecha), temp: med(cap.temp), hum: med(cap.hum) };
     const conocidas = new Set(c.lecturas.map((l) => l.ts));
-    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: num(h.temp), hum: num(h.hum), co2: num(h.co2), etanol: etanolDe(h) })),
-      { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: num(cap.temp), hum: num(cap.hum), co2: num(cap.co2), etanol: etanolDe(cap) }];
+    const entrantes = [...(cap.hist || []).map((h) => ({ ts: h.t, ph: phSimulado(h.t), temp: med(h.temp), hum: med(h.hum), co2: med(h.co2), etanol: etanolDe(h) })),
+      { ts: cap.fecha, ph: phSimulado(cap.fecha), temp: med(cap.temp), hum: med(cap.hum), co2: med(cap.co2), etanol: etanolDe(cap) }];
     for (const l of entrantes) {
       if (typeof l.ts !== 'number' || conocidas.has(l.ts)) continue;
       c.lecturas.push(l); conocidas.add(l.ts); nuevas++;
@@ -113,7 +119,7 @@ async function sincronizar() {
       const ahora = Date.now();
       const valvula = Number(cap.valvula) >= 1;
       est.alertas.push({
-        id: nuevoIdAlerta(), nodo_id: nodoId, variable: 'rotura', etiqueta: 'Alerta de aire', valor: num(cap.co2) ?? 0, nivel: 'crit',
+        id: nuevoIdAlerta(), nodo_id: nodoId, variable: 'rotura', etiqueta: 'Alerta de aire', valor: med(cap.co2) ?? 0, nivel: 'crit',
         ts: cap.fecha || ahora, reconocida: 0, creada: ahora, notificada: 1, leido: 0,
         diagnostico: 'Alerta de aire: la cápsula ' + cap.id + ' detectó un aumento brusco de etanol' +
           (etanolDe(cap) != null ? ' (+' + Math.round(etanolDe(cap)) + ' % sobre la base)' : '') + '. El CO₂ baja de forma lenta y progresiva.' +

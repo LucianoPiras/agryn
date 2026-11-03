@@ -3,7 +3,7 @@
 //
 // Usa los mismos módulos que el servidor (series, umbrales, diagnóstico), así que la pantalla
 // muestra lo mismo que la app conectada. Los datos son simulados.
-import { VARIABLES, evaluar } from '../server/umbrales.js';
+import { VARIABLES } from '../server/umbrales.js';
 import { serie, RANGOS } from '../server/serie.js';
 import { diagnosticar, VENTANA_DIAGNOSTICO } from '../server/diagnostico.js';
 import { PATRONES, etiquetaVariable, seCierraSola, patronResuelto } from '../server/patrones.js';
@@ -42,6 +42,21 @@ if (!estado.unidadesCelular) {   // se hace una sola vez por navegador
   estado.unidadesCelular = true;
   guardar();
 }
+// Las silobolsas simuladas no tienen problemas: se borran sus alertas y avisos guardados y se vuelven a generar
+// sus lecturas normales (los nodos y silobolsas que creó el usuario se mantienen). Una sola vez por navegador.
+if (!estado.simuladasSinProblemas) {
+  estado.alertas = [];
+  estado.avisos = [];
+  const ahora = Date.now();
+  for (const s of estado.silos) for (const n of s.nodos) {
+    if (!(estado.lecturas[n.id] || []).length) continue;   // un nodo que nunca tuvo lecturas sigue sin datos
+    const lista = [];
+    for (let ts = ahora - 15 * DIA; ts <= ahora; ts += 30 * MINUTO) lista.push(lecturaSimulada(n.id, ts));
+    estado.lecturas[n.id] = lista;
+  }
+  estado.simuladasSinProblemas = true;
+  guardar();
+}
 function cargar() {
   try {
     const raw = window.localStorage.getItem(CLAVE_STORE);
@@ -63,7 +78,8 @@ function valorSimulado(semilla, variable, ts) {
   const escala = Math.max(1, (v.max - v.min) / 2) / 3;
   const onda = Math.sin((ts / (6 * HORA)) * Math.PI * 2 + fase) * 0.3 * escala;
   const ruido = Math.sin(ts / (37 * MINUTO) + fase * 3) * 0.05 * escala;
-  const x = v.objetivo + (onda + ruido);
+  // Siempre dentro del rango habitual y nunca negativo: las silobolsas simuladas no disparan nada.
+  const x = Math.min(v.max, Math.max(v.min, 0, v.objetivo + (onda + ruido)));
   return Number(x.toFixed(variable === 'ph' ? 2 : (variable === 'co2' || variable === 'etanol' ? 0 : 1)));
 }
 function lecturaSimulada(semilla, ts) {
@@ -82,24 +98,14 @@ function semilla() {
     for (let ts = ahora - 15 * DIA; ts <= ahora; ts += 30 * MINUTO) lista.push(lecturaSimulada(n.id, ts));
     lecturas[n.id] = lista;
   }
-  // Escenario de la demo: una rotura en el Nodo 1 de la Silobolsa 02 (CO₂ baja, humedad sube).
-  const rotura = [];
-  for (let i = 0; i < 25; i++) {
-    const ts = ahora - (24 - i) * 5 * MINUTO;
-    rotura.push({ ts, ph: 6.5, temp: 17.0, hum: Number((12.0 + (3.0 * i) / 24).toFixed(1)), co2: Math.round(430 - (300 * i) / 24), etanol: Math.round((60 * i) / 24) });
-  }
-  lecturas[5] = lecturas[5].filter((l) => l.ts < ahora - 2 * HORA).concat(rotura);
-  const alertas = [{ id: 1, nodo_id: 5, variable: 'rotura', valor: 130, nivel: 'crit', ts: ahora, reconocida: 0, creada: ahora, notificada: 1, diagnostico: diagnosticar(ventanaEn(lecturas[5], ahora)) }];
-  const avisos = [{ id: 1, usuario: USUARIO, alerta_id: 1, creada: ahora, leido: 0 }];
-  return { silos, lecturas, alertas, avisos, umbrales: UMBRALES_INICIALES, silenciadas: [], nextId: 100, unidadesCelular: true };
+  // Sin problemas armados: las silobolsas simuladas arrancan con todo normal y sin alertas.
+  // (Las alarmas de prueba se generan solo a mano, desde el «Simulador».)
+  return { silos, lecturas, alertas: [], avisos: [], umbrales: UMBRALES_INICIALES.map((u) => ({ ...u })), silenciadas: [], nextId: 100, unidadesCelular: true, simuladasSinProblemas: true };
 }
 
 // Las lecturas de las 2 horas previas a la alarma, igual que el servidor.
 function ventanaEn(lista, ts) {
   return (lista || []).filter((l) => l.ts >= ts - VENTANA_DIAGNOSTICO && l.ts <= ts);
-}
-function diagnosticarNodo(nodoId, ts) {
-  return diagnosticar(ventanaEn(estado.lecturas[nodoId], ts));
 }
 function lecturas(nodoId) { return estado.lecturas[nodoId] || []; }
 
@@ -108,7 +114,6 @@ function nodoDe(id) {
   for (const s of estado.silos) { const n = s.nodos.find((x) => x.id === id); if (n) return { nodo: n, silo: s }; }
   return null;
 }
-function umbralesVigentes() { return estado.umbrales; }
 
 // Agrega una lectura, igual que el servidor: crea alertas por umbral y avisos para la demo.
 function ingresarLectura(nodoId, ts, valores) {
@@ -116,16 +121,7 @@ function ingresarLectura(nodoId, ts, valores) {
   if (lista.some((l) => l.ts === ts)) return;
   lista.push({ ts, ...valores });
   lista.sort((a, b) => a.ts - b.ts);
-  const reglas = umbralesVigentes();
-  for (const a of evaluar(valores, reglas)) {
-    if (estado.alertas.some((x) => x.nodo_id === nodoId && x.variable === a.variable && !x.reconocida)) continue;
-    const alerta = { id: nuevoId(estado.alertas), nodo_id: nodoId, variable: a.variable, valor: a.valor, nivel: a.nivel, ts, reconocida: 0, creada: Date.now(), notificada: 1, diagnostico: diagnosticarNodo(nodoId, ts) };
-    estado.alertas.push(alerta);
-    if (a.nivel === 'crit') {
-      estado.avisos.push({ id: nuevoId(estado.avisos), usuario: USUARIO, alerta_id: alerta.id, creada: Date.now(), leido: 0 });
-      iniciarLiberacion(nodoDe(nodoId).silo);
-    }
-  }
+  // Las silobolsas simuladas no disparan alertas solas (aunque se cambien los umbrales): no están conectadas a nada real.
 }
 
 // Cada 30 segundos entra una lectura nueva en cada nodo: la pantalla se mueve sola.
